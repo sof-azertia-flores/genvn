@@ -1,0 +1,1 @@
+rootProject.name = "genvn-backend"

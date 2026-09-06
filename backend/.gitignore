@@ -1,0 +1,11 @@
+build/
+.gradle/
+data/
+*.log
+.idea/
+# your live config holds your API key -- the committed template is application.example.yml
+config/application.yml
+# isolated data dir used by the local image-stub demo
+data-demo/
+# deployment bundles from tools/package-backend.sh
+dist/

@@ -1,0 +1,7 @@
+{
+  "_comment": "genvn frontend configuration. Edit this file and restart the dev server (or rebuild) to apply. apiBase: backend origin baked into `npm run build` for a front end served from another domain (CDN); empty = same origin.",
+  "devServerPort": 5180,
+  "devServerHost": "127.0.0.1",
+  "backend": "http://127.0.0.1:8080",
+  "apiBase": ""
+}

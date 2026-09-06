@@ -1,0 +1,26 @@
+* text=auto
+
+# Keep executable and source files consistent across platforms.
+*.sh text eol=lf
+*.gradle text eol=lf
+*.kts text eol=lf
+*.java text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Prevent Git from attempting text conversions on binary artifacts.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.jar binary
+*.docx binary

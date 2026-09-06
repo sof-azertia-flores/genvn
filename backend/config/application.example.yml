@@ -1,0 +1,181 @@
+# ---------------------------------------------------------------------------
+#  genvn - runtime configuration
+#
+#  TEMPLATE. Copy to config/application.yml (run-backend.sh does this for you
+#  on first run) and edit THAT. Spring Boot loads ./config/application.yml at
+#  startup and it overrides the packaged defaults. Restart the backend to
+#  apply changes.
+#
+#  Every key is optional: delete one and the built-in default applies.
+# ---------------------------------------------------------------------------
+
+server:
+  # Local-first. Change to 0.0.0.0 only if you deliberately want this reachable from
+  # other machines, and set genvn.access-key first: without it anyone who can reach the
+  # port can play and spend your model credits. On a public server prefer keeping
+  # 127.0.0.1 and putting a reverse proxy with HTTPS (nginx, Caddy) in front.
+  address: 127.0.0.1
+  port: 8080
+
+llm:
+  # NOTE: your API key lives in this file. It ships empty, and a test asserts it stays
+  # empty here -- if you ever put this project under version control, add
+  # backend/config/application.yml to .gitignore first.
+  #
+  # Leave api-key empty to run in MOCK MODE: a fully offline template narrator
+  # that goes through exactly the same JSON contract as a real model.
+  # Put a key here to switch to a real model.
+  api-key: ""
+
+  # Any OpenAI-compatible /chat/completions endpoint: OpenAI, Groq, Together,
+  # llama.cpp server, LM Studio, Ollama's OpenAI shim, ...
+  # Give the endpoint root, without the /chat/completions suffix.
+  base-url: https://api.openai.com/v1
+  model: gpt-4o-mini
+
+  temperature: 0.85
+
+  # Stream the response (SSE). Long structured generations - the story compiler
+  # writes several thousand tokens - can exceed the idle timeout of a gateway in
+  # front of the provider, which then answers 504 even though the model was
+  # working. Streaming keeps bytes flowing so that never happens. Set false only
+  # for a provider that cannot stream.
+  stream: true
+
+  # Total wall-clock budget for one generation, including streaming.
+  timeout-seconds: 300
+
+  # Longest silence tolerated once the response has started. The timeout above only
+  # covers the wait for the first byte; a gateway that keeps the connection open
+  # without sending anything would otherwise block a game thread until it dropped
+  # the connection. The call then fails and is retried. 0 disables the rule.
+  idle-timeout-seconds: 120
+
+  # Ask the provider for response_format=json_object. Set false for providers
+  # that reject it.
+  json-mode: true
+
+  # Reasoning effort for models that support it (gpt-5 family, o-series), sent as
+  # reasoning_effort: none | minimal | low | medium | high | xhigh, whichever your
+  # provider defines. Empty sends nothing. A per-purpose value overrides "effort";
+  # compiling a story is worth more thought than ranking the prefetch order.
+  # A provider that rejects the field answers 400, which fails at once (no retry).
+  reasoning:
+    effort: ""
+    story-compile: ""
+    scene-generate: ""
+    arc-continue: ""
+    choice-probabilities: ""
+    spare-designs: ""
+
+  # Force the mock even when an api-key is present. Useful for offline demos.
+  force-mock: false
+
+genvn:
+  # Where saves are written, relative to the backend directory.
+  # Each committed scene rewrites data-dir/sessions/<session-id>.json
+  data-dir: data
+
+  # Unassigned appearance-only designs to keep on hand (at most 3). A design belongs to
+  # exactly one person: when a scene gives one an identity, it leaves the pool, its pictures
+  # become that person's, and a background call sketches a replacement. 0 turns the
+  # replenishment off; the compiler's initial designs are then all there is.
+  spare-designs: 3
+
+  # Access key. Empty = no gate (fine on your own machine). Set any long random string
+  # before exposing the server: the front end asks for it once, keeps it in the
+  # browser and sends it with every /api call as the X-Genvn-Key header. Picture
+  # URLs carry a per-save token derived from it instead, so <img> tags keep working.
+  # Only useful over HTTPS -- over plain HTTP the key travels in the clear.
+  access-key: ""
+
+  # Front-end origins allowed to call /api from another domain, for a split deployment
+  # where the built front end is served from a CDN. Loopback origins are always
+  # allowed. Give the origin only, no path: ["https://vn.example.com"]. Patterns such
+  # as "https://*.pages.dev" work. Empty = loopback only.
+  allowed-origins: []
+
+  speculation:
+    # Generate the successors of every choice while you are still reading the
+    # current scene. This is the feature that makes choices feel instant.
+    enabled: true
+
+    # Prefetch budget per scene. Dice are cast the moment a scene becomes current, so
+    # every choice -- checked or not -- costs exactly ONE branch: the outcome that will
+    # actually happen. A scene has at most 4 choices. On a metered API, lower this or
+    # set enabled: false.
+    max-branches: 6
+
+    # Background generation pool size.
+    threads: 4
+
+  continuation:
+    # When the current story spine runs low, plan the next arc in the
+    # background so the story continues instead of stopping.
+    enabled: true
+
+    # Fraction of beats completed at which planning begins.
+    threshold: 0.6
+
+image:
+  # Pictures are OFF by default: a fresh checkout never spends money on art. Turn on with a
+  # key to get real backgrounds and character portraits. Everything below is independent of
+  # the text provider above -- its own key, endpoint, model, budget and workers.
+  enabled: false
+
+  # openai  -> the OpenAI Images API (generations + edits). Do not assume a text endpoint
+  #            that speaks /chat/completions also serves /images/*; check your provider.
+  # disabled -> placeholders only.
+  provider: openai
+  api-key: ""
+  base-url: https://api.openai.com/v1
+
+  # gpt-image models support transparent PNG sprites and reference-image edits for variants/cards.
+  # Models without transparency/edits can only supply backgrounds; character art is paused.
+  model: gpt-image-1
+
+  # Must be sizes the chosen model supports. Backgrounds are landscape stage art;
+  # portraits are vertical sprites the layout scales to fit.
+  background-size: 1536x1024
+  portrait-size: 1024x1536
+
+  # Provider-specific quality token (gpt-image: low|medium|high|auto; dall-e-3: standard|hd).
+  # Blank sends nothing.
+  quality: ""
+  # PNG and JPEG are supported by the bundled image decoder. Unsupported formats (including
+  # WebP) pause pictures before any provider call.
+  output-format: png
+  # Stage sprites always request transparent PNG, even when opaque backgrounds/cards use JPEG.
+  # Total budget for one image call, headers and body together. Reference edits at sprite size
+  # routinely take several minutes; a proxy may answer with headers at once and keep the
+  # connection alive while it waits, so this covers the whole generation. Too small a value
+  # fails pictures that were about to arrive ("exceeded the total read deadline").
+  timeout-seconds: 600
+  # Longest silence tolerated while an image response is arriving. 0 disables the rule.
+  idle-timeout-seconds: 60
+
+  # Image workers, separate from the text pool. A slow picture never delays prose.
+  concurrency: 4
+  queue-capacity: 64
+
+  # Provider calls per picture, counting retries after 429s / timeouts.
+  max-attempts: 3
+
+  # Pictures auto-queued when a story or a new arc is planned. The rest of the plan waits until a
+  # scene or the coming beat needs it. The default plan has 3 backgrounds, 3 transparent bases,
+  # 3 shared cards and 6 pose/expression variants. Bases/cards take priority over variants.
+  first-batch-budget: 12
+
+  # Optional cap on provider call attempts per story arc (retries and edits included).
+  # 0 = no cap: workers, one-request-per-picture and max-attempts still bound the spend.
+  # Set a number to make the game stop drawing after that many attempts in an arc; the
+  # story keeps playing with placeholders and the Inspector says why.
+  arc-budget: 0
+
+  plan:
+    # Locations to pre-render at compile time, opening location first.
+    locations: 3
+    # Main characters to pre-render a transparent base sprite and one shared card for.
+    characters: 3
+    # Expression variants per character, edited from the base portrait. Comma separated.
+    expressions: worried,suspicious
