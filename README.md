@@ -19,7 +19,8 @@ Personal project. No accounts, no cloud, no telemetry. Binds to `127.0.0.1` by d
 
 ## Requirements
 
-- **Java 21+** (tested on Temurin 21)
+- **Java 21+** (tested on Temurin 21). A jlink-trimmed runtime with no `jdk.random` module
+  still starts: the dice fall back to `SecureRandom` and say so once in the log.
 - **Node 20+** (tested on Node 26)
 - No database. No API key required — it ships with a full offline mock.
 
