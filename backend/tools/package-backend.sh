@@ -138,8 +138,11 @@ cat > "$BUNDLE/DEPLOY.md" <<DOC
 
 ## 需要什么
 
-- Java 21 或更新（\`java -version\` 应显示 21+）。请用发行版完整的 JRE/JDK；
-  用 jlink 裁剪过、缺少 \`jdk.random\` 模块的运行时也能启动，骰子会自动改用 \`SecureRandom\`，日志里留一行告警。
+- Java 21 或更新（\`java -version\` 应显示 21+）。
+  Java 21~24 请用 **JDK** 包，不要用 JRE 包：Temurin 的 JRE 不含 \`jdk.random\` 模块，
+  骰子会自动退回 \`SecureRandom\`，并在日志里留一行告警（能正常玩，只是少了 JDK 自带的生成器）。
+  Java 25 起这些生成器已并入 \`java.base\`，两种包都可以，\`--list-modules\` 里查不到
+  \`jdk.random\` 是正常的。
 - 一个能访问文字模型接口的网络；不填 api-key 则以离线 mock 模式运行。
 - 前端另行部署（Vite 开发服务器或 \`frontend/dist\` 静态文件），通过 \`/api\` 访问本服务。
 

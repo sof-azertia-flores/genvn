@@ -11,10 +11,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The dice must come up on whatever Java the server happens to have. A runtime trimmed with
- * jlink carries java.base but not jdk.random, and RandomGenerator.getDefault() throws there --
- * which used to fail the DiceService bean and, through CheckResolver and SessionService, the
- * entire application context at startup.
+ * The dice must come up on whatever Java the server happens to have. Temurin's JRE package for
+ * 21 through 24 carries java.base but not the optional jdk.random module, and there
+ * RandomGenerator.getDefault() throws -- which used to fail the DiceService bean and, through
+ * CheckResolver and SessionService, the entire application context at startup.
  */
 class DiceRuntimeTest {
 

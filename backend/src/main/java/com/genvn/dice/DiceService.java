@@ -32,13 +32,18 @@ public class DiceService {
     /**
      * The generator to roll with when nobody injected one.
      *
-     * <p>{@link RandomGenerator#getDefault()} asks for "L32X64MixRandom", and every algorithm it
-     * can name ships in the {@code jdk.random} module rather than in {@code java.base}. A runtime
-     * assembled with jlink -- a slim container image, a hand-trimmed JRE -- need not carry that
-     * module, and there the lookup throws {@code IllegalArgumentException} and takes the whole
-     * application context down at startup, long before anyone rolls a die. {@link SecureRandom}
-     * is part of {@code java.base}, so it is always present, and it is no worse a die: a player
-     * must not be able to predict the next d20 either way.
+     * <p>{@link RandomGenerator#getDefault()} asks for "L32X64MixRandom". Through Java 24 that
+     * algorithm, and every other one it can name, ships in the optional {@code jdk.random} module
+     * rather than in {@code java.base} -- and Temurin's *JRE* package does not carry that module
+     * (its JDK package does), nor does a runtime trimmed with jlink. There the lookup throws
+     * {@code IllegalArgumentException} and this bean fails to build, which through CheckResolver
+     * and SessionService takes the whole application context down at startup, long before anyone
+     * rolls a die. Java 25 moved the implementations into {@code java.base}, so on 25+ the module
+     * is gone from --list-modules yet getDefault() works and this fallback is never reached.
+     *
+     * <p>{@link SecureRandom} is part of {@code java.base} in every version, so it is always
+     * there, and it is no worse a die: a player must not be able to predict the next d20 either
+     * way.
      */
     static RandomGenerator defaultGenerator() {
         return defaultGenerator(RandomGenerator::getDefault);
@@ -50,7 +55,8 @@ public class DiceService {
             return preferred.get();
         } catch (RuntimeException | ServiceConfigurationError | LinkageError e) {
             log.warn("This Java runtime has no jdk.random module ({}), so dice roll from "
-                    + "SecureRandom instead. Install a full JRE 21+ to use the JDK generator.",
+                    + "SecureRandom instead. The game is unaffected; to use the JDK's own "
+                    + "generator, run on the JDK package rather than the JRE, or on Java 25+.",
                     e.toString());
             return new SecureRandom();
         }

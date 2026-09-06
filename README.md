@@ -19,8 +19,10 @@ Personal project. No accounts, no cloud, no telemetry. Binds to `127.0.0.1` by d
 
 ## Requirements
 
-- **Java 21+** (tested on Temurin 21). A jlink-trimmed runtime with no `jdk.random` module
-  still starts: the dice fall back to `SecureRandom` and say so once in the log.
+- **Java 21+** (tested on Temurin 21 and 25). On 21 through 24, prefer the **JDK** package:
+  Temurin's *JRE* package omits the `jdk.random` module, and the dice then fall back to
+  `SecureRandom` with one warning in the log. Java 25 folded those generators into
+  `java.base`, so on 25+ either package is fine.
 - **Node 20+** (tested on Node 26)
 - No database. No API key required — it ships with a full offline mock.
 
