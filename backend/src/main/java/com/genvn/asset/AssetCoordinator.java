@@ -258,6 +258,38 @@ public class AssetCoordinator {
         pipeline.forget(sessionId);
     }
 
+    /**
+     * Rewind restored a different cast. Drop character pictures that no longer belong to this
+     * story, or whose appearance no longer matches, so a reused NPC id cannot keep the old face.
+     */
+    public void reconcileAfterRestore(GameSession session) {
+        if (!active() || session == null || session.story == null) return;
+        try {
+            Map<String, String> appearances = new LinkedHashMap<>();
+            if (session.story.playerVisual != null) {
+                appearances.put(com.genvn.game.PlayerCharacter.ID,
+                        nz(session.story.playerVisual.visualDescription()));
+            }
+            if (session.story.bible != null && session.story.bible.characters() != null) {
+                for (var npc : session.story.bible.characters()) {
+                    if (npc != null && npc.id() != null) appearances.put(npc.id(), nz(npc.visualDescription()));
+                }
+            }
+            if (session.story.encounteredNpcs != null) {
+                for (var npc : session.story.encounteredNpcs) {
+                    if (npc != null && npc.id() != null) appearances.put(npc.id(), nz(npc.visualDescription()));
+                }
+            }
+            pipeline.dropDivergedCharacterArt(session.id, appearances);
+        } catch (RuntimeException e) {
+            log.warn("Assets {}: could not reconcile pictures after rewind: {}", session.id, e.toString());
+        }
+    }
+
+    private static String nz(String value) {
+        return value == null ? "" : value;
+    }
+
     public ImageProperties properties() {
         return props;
     }

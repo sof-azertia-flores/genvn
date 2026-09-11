@@ -9,9 +9,9 @@ const EXAMPLE_STORY = "我来到一座多年无人居住的旧宅寻找祖父留
 const EXAMPLE_STATS: Record<StatName, number> = { Body: 2, Agility: 2, Perception: 4, Intellect: 3, Will: 3, Presence: 1 };
 const POINT_BUDGET = 15;
 const STAT_HINT: Record<StatName, string> = { Body: "力量与耐力", Agility: "反应与潜行", Perception: "观察与直觉", Intellect: "知识与推理", Will: "勇气与自控", Presence: "交涉与影响" };
-interface Props { config: ConfigView | null; onStarted: (session: SessionView) => void | Promise<void>; onLoad: (sessionId: string) => Promise<void> }
+interface Props { config: ConfigView | null; onStarted: (session: SessionView) => void | Promise<void>; onLoad: (sessionId: string) => Promise<void>; onOpenSettings?: () => void }
 
-export default function SetupView({ config, onStarted, onLoad }: Props) {
+export default function SetupView({ config, onStarted, onLoad, onOpenSettings }: Props) {
   const [outline, setOutline] = useState(EXAMPLE_STORY);
   const [name, setName] = useState("Alex");
   const [background, setBackground] = useState("档案整理员，习惯把混乱的东西排成顺序");
@@ -66,7 +66,10 @@ export default function SetupView({ config, onStarted, onLoad }: Props) {
   return <main className="setup setup-scene"><div className="setup-shell">
     <header className="setup-masthead">
       <span className="setup-wordmark"><span className="wordmark-glyph" aria-hidden="true">✧</span> genvn</span>
-      <span className="setup-mode"><i />{config?.mockMode ? "离线体验" : config ? "灵感已连接" : "正在连接…"}<b>本地故事空间</b></span>
+      <div className="setup-mast-actions">
+        <span className="setup-mode"><i />{config?.mockMode ? "离线体验" : config ? "灵感已连接" : "正在连接…"}<b>本地故事空间</b></span>
+        {onOpenSettings && <button className="text-button setup-settings" type="button" onClick={onOpenSettings}>设置</button>}
+      </div>
     </header>
     <div className="setup-intro"><span className="eyebrow">YOUR NEXT CHAPTER</span>
       <h1>写下开端，<br className="intro-break" />让故事遇见你。</h1><p>世界从你的几行文字展开。前方的命运，由选择与骰子共同书写。</p>

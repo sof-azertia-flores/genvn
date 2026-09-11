@@ -1,13 +1,15 @@
 import type { CompiledStory, GameState } from "../types";
 import { STAT_LABEL, STATS, statValue } from "../types";
+import CharacterCard from "./CharacterCard";
 
 interface Props {
   state: GameState;
   story: CompiledStory;
+  cardUrl?: string | null;
   onClose: () => void;
 }
 
-export default function SidePanel({ state, story, onClose }: Props) {
+export default function SidePanel({ state, story, cardUrl, onClose }: Props) {
   const player = state.player;
   const hpPercent = Math.max(0, Math.round((player.hp / Math.max(1, player.maxHp)) * 100));
   const relations = Object.values(state.characters).filter((c) => c.met);
@@ -16,6 +18,9 @@ export default function SidePanel({ state, story, onClose }: Props) {
     <aside className="drawer">
       <button className="icon-btn close" onClick={onClose}>关闭</button>
       <h2>{player.name}</h2>
+      <div className="sheet-portrait">
+        <CharacterCard characterId="player" name={player.name} url={cardUrl ?? null} speaking={false} player />
+      </div>
       <div className="sub">{player.background || "（未填写背景）"}</div>
 
       <div className="hp-bar"><i style={{ width: `${hpPercent}%` }} /></div>

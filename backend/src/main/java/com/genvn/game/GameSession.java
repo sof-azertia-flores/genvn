@@ -86,6 +86,12 @@ public class GameSession {
     public volatile boolean deleted = false;
     @JsonIgnore
     public volatile boolean continuationPending = false;
+    /**
+     * Bumped on rewind so an in-flight arc plan from a previous path cannot write back here.
+     * Process-local: a restart has no in-flight planner.
+     */
+    @JsonIgnore
+    public volatile int continuationEpoch;
     /** Next-arc outline generated in the background; consumed when the current spine runs out. */
     public volatile ArcOutline pendingArc;
     /** See {@link PendingRoll}. Null whenever no die is outstanding. */

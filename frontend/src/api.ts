@@ -1,4 +1,4 @@
-import type { AccessView, AssetsStatus, ChoiceView, ConfigView, CreationJobView, HistoryPage, RollResponse, SessionSummary, SessionTasksView, SessionView } from "./types";
+import type { AccessView, AssetsStatus, ChoiceView, ConfigView, CreationJobView, HistoryPage, RollResponse, SessionSummary, SessionTasksView, SessionView, SettingsView } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly code: string) {
@@ -135,4 +135,7 @@ export const api = {
   /** Picture status. Lock-free on the server, cheap to poll while anything is still generating. */
   assets: (id: string, signal?: AbortSignal) =>
     request<AssetsStatus>(`/sessions/${encodeURIComponent(id)}/assets`, { signal }),
+  settings: () => request<SettingsView>("/settings"),
+  saveSettings: (values: Record<string, unknown>) =>
+    request<SettingsView>("/settings", { method: "PUT", body: JSON.stringify({ values }) }),
 };

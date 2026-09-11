@@ -255,3 +255,20 @@ test("a restorable history scene offers rewind and the current head does not", a
   assert.equal(rewound, "scene_000");
   ui.unmount();
 });
+
+test("rewind is disabled while a submitted choice is still on screen", async () => {
+  const api = { history: async () => ({
+    sessionId: "s",
+    entries: [{ sceneId: "scene_000", choiceText: null, restorable: true, blocks: [{ type: "narration", text: "开场。" }] }],
+    nextBeforeSceneId: null,
+  }) };
+  let rewound = null;
+  const ui = harness("components/HistoryDialog.tsx", { "../api": { api } });
+  ui.render({ sessionId: "s", throughSceneId: "scene_001", throughBlockIndex: 0, rewindBlocked: true, onClose() {}, onRewind: (id) => { rewound = id; } });
+  await flush();
+  const button = byClass(ui, "history-rewind")[0];
+  assert.equal(button.props.disabled, true);
+  button.props.onClick({ stopPropagation() {} });
+  assert.equal(rewound, null);
+  ui.unmount();
+});

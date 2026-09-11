@@ -11,6 +11,7 @@ import com.genvn.game.GameState;
 import com.genvn.game.SceneStateProjector;
 import com.genvn.game.StateReducer;
 import com.genvn.narrative.*;
+import com.genvn.persistence.SceneTreeStore;
 import com.genvn.story.CompiledStory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,11 +41,11 @@ public class SpeculativeGenerator {
     private final ObjectMapper mapper;
     private final ChoiceProbabilityEstimator estimator;
     private final CheckResolver checkResolver;
-    private final boolean enabled;
-    private final int maxBranches;
+    private final GenvnProperties properties;
     private final ThreadPoolExecutor executor;
     private final LinkedBlockingDeque<Runnable> queue = new LinkedBlockingDeque<>();
     private final Map<String, Frontier> frontiers = new ConcurrentHashMap<>();
+    private SceneTreeStore tree;
 
     /** Explicit single-round wiring remains useful for standalone callers. */
     public SpeculativeGenerator(SceneGenerator generator, BranchCache cache, StateReducer reducer,
@@ -72,14 +73,32 @@ public class SpeculativeGenerator {
         this.mapper = mapper;
         this.estimator = estimator;
         this.checkResolver = checkResolver == null ? new CheckResolver(new DiceService()) : checkResolver;
-        this.enabled = properties.getSpeculation().isEnabled();
-        this.maxBranches = Math.max(1, properties.getSpeculation().getMaxBranches());
+        this.properties = properties;
         int threads = Math.max(1, properties.getSpeculation().getThreads());
         this.executor = new ThreadPoolExecutor(threads, threads, 0L, TimeUnit.MILLISECONDS, queue, r -> {
             Thread t = new Thread(r, "genvn-speculation");
             t.setDaemon(true);
             return t;
         });
+    }
+
+    @Autowired(required = false)
+    public void setSceneTree(SceneTreeStore tree) {
+        this.tree = tree;
+    }
+
+    public void reconfigurePool() {
+        int threads = Math.max(1, properties.getSpeculation().getThreads());
+        executor.setCorePoolSize(threads);
+        executor.setMaximumPoolSize(threads);
+    }
+
+    private boolean speculationEnabled() {
+        return properties.getSpeculation().isEnabled();
+    }
+
+    private int maxBranches() {
+        return Math.max(1, properties.getSpeculation().getMaxBranches());
     }
 
     private static final class Frontier {
@@ -126,7 +145,7 @@ public class SpeculativeGenerator {
             }
             Map<BranchKey, Branch> promoted = promote(session, previous);
             cache.discardAll(session.id);
-            if (!enabled || session.deleted || session.currentScene == null || session.finished
+            if (!speculationEnabled() || session.deleted || session.currentScene == null || session.finished
                     || session.currentScene.choices().isEmpty()) {
                 promoted.values().forEach(Branch::cancel);
                 return List.of();
@@ -135,7 +154,10 @@ public class SpeculativeGenerator {
             frontiers.put(session.id, frontier);
             outer: for (Choice choice : frontier.root.choices()) {
                 for (String outcome : outcomes(choice, frontier.dice)) {
-                    if (frontier.first.size() >= maxBranches) break outer;
+                    if (frontier.first.size() >= maxBranches()) break outer;
+                    if (tree != null && tree.findChild(session.id, frontier.root.sceneId(), choice.id(), outcome).isPresent()) {
+                        continue;
+                    }
                     BranchKey key = new BranchKey(frontier.root.sceneId(), choice.id(), outcome);
                     Branch branch = promoted.remove(key);
                     boolean created = branch == null;

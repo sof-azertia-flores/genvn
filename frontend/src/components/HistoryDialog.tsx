@@ -9,6 +9,7 @@ interface Props {
   throughBlockIndex: number;
   onClose: () => void;
   onRewind?: (sceneId: string) => void;
+  rewindBlocked?: boolean;
 }
 
 /** Where the reader should land once the next page has rendered. */
@@ -21,7 +22,7 @@ type ScrollPlan =
 const BOTTOM_TOLERANCE = 12;
 
 /** Only asks for canonical history through the reader's current position. */
-export default function HistoryDialog({ sessionId, throughSceneId, throughBlockIndex, onClose, onRewind }: Props) {
+export default function HistoryDialog({ sessionId, throughSceneId, throughBlockIndex, onClose, onRewind, rewindBlocked }: Props) {
   const [page, setPage] = useState<HistoryPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -127,7 +128,8 @@ export default function HistoryDialog({ sessionId, throughSceneId, throughBlockI
             <p>{block.text}</p>
           </div>)}
           {entry.restorable && onRewind && (
-            <button className="history-rewind" onClick={(event) => { event.stopPropagation(); onRewind(entry.sceneId); }}>
+            <button className="history-rewind" disabled={rewindBlocked} title={rewindBlocked ? "请先读完当前选择或等待这一幕结束，再回溯。" : undefined}
+              onClick={(event) => { event.stopPropagation(); if (!rewindBlocked) onRewind(entry.sceneId); }}>
               从这里重新选择
             </button>
           )}

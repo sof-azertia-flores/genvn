@@ -39,10 +39,8 @@ public class SessionController {
     private final BranchCache branchCache;
     private final LlmCallLog callLog;
     private final StructuredLlm llm;
-    private final boolean speculationEnabled;
-    private final int speculationConcurrency;
-    private final boolean continuationEnabled;
-    private final boolean imageEnabled;
+    private final GenvnProperties properties;
+    private final ImageProperties imageProperties;
 
     public SessionController(SessionService sessions, BranchCache branchCache, LlmCallLog callLog,
                              StructuredLlm llm, GenvnProperties properties) {
@@ -52,19 +50,19 @@ public class SessionController {
     @Autowired
     public SessionController(SessionService sessions, BranchCache branchCache, LlmCallLog callLog,
                              StructuredLlm llm, GenvnProperties properties, ImageProperties imageProperties) {
-        this.imageEnabled = imageProperties.isEnabled();
         this.sessions = sessions;
         this.branchCache = branchCache;
         this.callLog = callLog;
         this.llm = llm;
-        this.speculationEnabled = properties.getSpeculation().isEnabled();
-        this.speculationConcurrency = Math.max(1, properties.getSpeculation().getThreads());
-        this.continuationEnabled = properties.getContinuation().isEnabled();
+        this.properties = properties;
+        this.imageProperties = imageProperties;
     }
 
     @GetMapping("/config")
     public Dtos.ConfigView config() {
-        return new Dtos.ConfigView(llm.describeClient(), llm.usingMock(), speculationEnabled, continuationEnabled, imageEnabled);
+        return new Dtos.ConfigView(llm.describeClient(), llm.usingMock(),
+                properties.getSpeculation().isEnabled(), properties.getContinuation().isEnabled(),
+                imageProperties.isEnabled());
     }
 
     @PostMapping("/sessions")
@@ -184,7 +182,9 @@ public class SessionController {
                             "failed".equals(status) ? "这条预推演未完成，选择后会重新准备。" : null));
                 }
             }
-            return new Dtos.SessionTasksView(id, scene == null ? null : scene.sceneId(), speculationEnabled, speculationConcurrency,
+            return new Dtos.SessionTasksView(id, scene == null ? null : scene.sceneId(),
+                    properties.getSpeculation().isEnabled(),
+                    Math.max(1, properties.getSpeculation().getThreads()),
                     session.continuationPending, session.resolvingChoiceId, rows, sessions.secondRoundStatus(session));
         }
     }

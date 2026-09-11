@@ -165,6 +165,15 @@ public class AssetStore {
         }
     }
 
+    public void deleteFile(String sessionId, String fileName) {
+        try {
+            Path p = inside(sessionDir(sessionId), fileName);
+            Files.deleteIfExists(p);
+        } catch (RuntimeException | IOException e) {
+            log.warn("Could not delete picture {} of session {}: {}", fileName, sessionId, e.toString());
+        }
+    }
+
     public void deleteSession(String sessionId) {
         Path dir;
         try {

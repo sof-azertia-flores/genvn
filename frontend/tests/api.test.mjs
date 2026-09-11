@@ -86,3 +86,18 @@ test("history encodes the visible reading boundary and image retry is an explici
   assert.equal(calls[1].path, `/api/sessions/${encodeURIComponent("故事 ?")}/assets/pt.player.action/retry`);
   assert.equal(calls[1].init.method, "POST");
 });
+
+test("settings are read and written through /api/settings", async () => {
+  let actual;
+  globalThis.fetch = async (path, init) => {
+    actual = { path, init };
+    return Response.json({ file: "config/application.yml", fields: [], applied: ["llm.model"], restartPending: [] });
+  };
+  await api.settings();
+  assert.equal(actual.path, "/api/settings");
+  const saved = await api.saveSettings({ "llm.model": "gpt-4o" });
+  assert.equal(actual.path, "/api/settings");
+  assert.equal(actual.init.method, "PUT");
+  assert.deepEqual(JSON.parse(actual.init.body), { values: { "llm.model": "gpt-4o" } });
+  assert.deepEqual(saved.applied, ["llm.model"]);
+});

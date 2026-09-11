@@ -34,7 +34,7 @@ public class AccessConfig {
     @Bean
     public FilterRegistrationBean<CorsFilter> corsFilter(GenvnProperties properties) {
         FilterRegistrationBean<CorsFilter> bean = new FilterRegistrationBean<>(
-                new CorsFilter(corsSource(properties.getAllowedOrigins())));
+                new CorsFilter(request -> corsConfiguration(properties.getAllowedOrigins())));
         bean.setOrder(Ordered.HIGHEST_PRECEDENCE);
         bean.addUrlPatterns("/api/*");
         return bean;
@@ -54,7 +54,7 @@ public class AccessConfig {
     }
 
     /** Loopback plus the configured front-end origins; blank entries and trailing slashes are ignored. */
-    public static UrlBasedCorsConfigurationSource corsSource(List<String> allowedOrigins) {
+    public static CorsConfiguration corsConfiguration(List<String> allowedOrigins) {
         List<String> patterns = new ArrayList<>(LOOPBACK_ORIGINS);
         if (allowedOrigins != null) {
             for (String origin : allowedOrigins) {
@@ -64,12 +64,16 @@ public class AccessConfig {
         }
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOriginPatterns(patterns);
-        config.setAllowedMethods(List.of("GET", "POST", "DELETE", "OPTIONS"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         // The key header makes every call preflighted; let the browser remember the answer.
         config.setMaxAge(3600L);
+        return config;
+    }
+
+    public static UrlBasedCorsConfigurationSource corsSource(List<String> allowedOrigins) {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/api/**", config);
+        source.registerCorsConfiguration("/api/**", corsConfiguration(allowedOrigins));
         return source;
     }
 }

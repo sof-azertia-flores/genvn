@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.genvn.dice.CheckResolver;
 import com.genvn.dice.DiceService;
 import com.genvn.game.GameSession;
-import com.genvn.game.SessionHistoryService;
 import com.genvn.game.SessionService;
 import com.genvn.game.StateReducer;
 import com.genvn.llm.LlmCallLog;
@@ -27,16 +26,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * The scene tree is the save's memory of every path that was generated. Rewinding restores a
- * visited node exactly, including its sealed dice; an unused ready candidate is adopted without
- * another model call.
- */
-class SaveTreeRewindTest {
+class SaveTreeIntegrityTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -45,7 +40,7 @@ class SaveTreeRewindTest {
         void close() { speculative.close(); }
     }
 
-    private Stack stack(Path dataDir, boolean speculation, ScriptedRandom dice) {
+    private Stack stack(Path dataDir, boolean speculation) {
         var client = new ScriptedLlmClient(mapper, request -> {
             var choice = ScriptedLlmClient.choiceOf(request);
             if (choice == null) {
@@ -67,7 +62,7 @@ class SaveTreeRewindTest {
         var generator = new SceneGenerator(llm, new ContextRenderer());
         var reducer = new StateReducer();
         var cache = new BranchCache();
-        var resolver = new CheckResolver(new DiceService(dice));
+        var resolver = new CheckResolver(new DiceService(new ScriptedRandom(4, 15)));
         var speculative = new SpeculativeGenerator(generator, cache, reducer, mapper, properties, resolver);
         var repository = new FileGameSessionRepository(mapper, properties);
         var tree = new SceneTreeStore(mapper, dataDir.resolve("sessions"));
@@ -79,71 +74,68 @@ class SaveTreeRewindTest {
     }
 
     @Test
-    @DisplayName("rewinding restores a visited scene and its sealed dice; taking the same choice does not re-apply it")
-    void rewindRestoresVisitedPathWithoutRegenerating(@TempDir Path dir) {
-        Stack stack = stack(dir, false, new ScriptedRandom(4, 15));
+    @DisplayName("a crash after writing a node does not reuse that scene id or parent a node to itself")
+    void crashAfterNodeWriteDoesNotOverwriteTheOrphan(@TempDir Path dir) throws Exception {
+        Stack stack = stack(dir, false);
         try {
             GameSession created = stack.sessions.create(Engine.OUTLINE, Engine.alex());
             String opening = created.currentScene.sceneId();
-            int openingVersion = created.state.stateVersion;
-            int scenesBefore = stack.client.sceneCallCount();
-
             stack.sessions.choose(created.id, "stairs");
             GameSession after = stack.sessions.require(created.id);
-            assertEquals("The stairwell smells of dust.", after.currentScene.blocks().getFirst().text());
-            assertNotEquals(opening, after.currentScene.sceneId());
-            assertTrue(stack.tree.readNode(created.id, opening).orElseThrow().restorable());
-            assertTrue(stack.tree.readNode(created.id, after.currentScene.sceneId()).orElseThrow().restorable());
+            String firstChild = after.currentScene.sceneId();
+            assertEquals("scene_001", firstChild);
+            SceneNode original = stack.tree.readNode(created.id, firstChild).orElseThrow();
+            assertEquals(opening, original.parentNodeId);
+            String originalText = original.scene.blocks().getFirst().text();
 
-            GameSession rewound = stack.sessions.rewind(created.id, opening, after.currentScene.sceneId(),
-                    after.state.stateVersion);
-            assertEquals(opening, rewound.currentScene.sceneId());
-            assertEquals("The hall is quiet.", rewound.currentScene.blocks().getFirst().text());
-            assertEquals(1, rewound.history.size(), "history follows the path to the restored node");
-            assertTrue(rewound.state.stateVersion > openingVersion, "stale clients still 409");
-            int afterRewind = stack.client.sceneCallCount();
+            Path sessionFile = dir.resolve("sessions").resolve(created.id).resolve("session.json");
+            GameSession rolledBack = mapper.readValue(sessionFile.toFile(), GameSession.class);
+            SceneNode openingNode = stack.tree.readNode(created.id, opening).orElseThrow();
+            rolledBack.currentScene = openingNode.scene;
+            rolledBack.currentNodeId = opening;
+            rolledBack.sceneCounter = 1;
+            rolledBack.state = openingNode.state;
+            rolledBack.history = rolledBack.history.isEmpty() ? rolledBack.history
+                    : java.util.List.of(rolledBack.history.getFirst());
+            mapper.writerWithDefaultPrettyPrinter().writeValue(sessionFile.toFile(), rolledBack);
 
-            GameSession same = stack.sessions.choose(created.id, "stairs").session();
-            assertEquals("The stairwell smells of dust.", same.currentScene.blocks().getFirst().text());
-            assertEquals(afterRewind, stack.client.sceneCallCount(),
-                    "re-taking a played path restores the visited child; it must not generate again");
-            assertEquals(scenesBefore + 1, stack.client.sceneCallCount(),
-                    "only the first stairs choice paid for a scene");
+            Stack restarted = stack(dir, false);
+            try {
+                GameSession loaded = restarted.sessions.require(created.id);
+                assertEquals(opening, loaded.currentScene.sceneId());
+                assertTrue(loaded.sceneCounter > 1, "the counter must pass every scene_NNN already on disk");
+                GameSession next = restarted.sessions.choose(created.id, "window").session();
+                assertNotEquals(firstChild, next.currentScene.sceneId(), "the orphaned child must keep its id");
+                SceneNode kept = restarted.tree.readNode(created.id, firstChild).orElseThrow();
+                assertEquals(opening, kept.parentNodeId);
+                assertNotEquals(kept.nodeId, kept.parentNodeId);
+                assertEquals(originalText, kept.scene.blocks().getFirst().text());
+                SceneNode fresh = restarted.tree.readNode(created.id, next.currentScene.sceneId()).orElseThrow();
+                assertEquals(opening, fresh.parentNodeId);
+                assertNotEquals(fresh.nodeId, fresh.parentNodeId);
+            } finally {
+                restarted.close();
+            }
         } finally {
             stack.close();
         }
     }
 
     @Test
-    @DisplayName("a finished unused branch is kept on disk and adopted after rewind without a new model call")
-    void unusedReadyBranchIsAdoptedAfterRewind(@TempDir Path dir) {
-        Stack stack = stack(dir, true, new ScriptedRandom(4, 15));
+    @DisplayName("rewinding does not spend model calls on children the tree already holds")
+    void rewindDoesNotPrefetchSavedChildren(@TempDir Path dir) {
+        Stack stack = stack(dir, true);
         try {
             GameSession created = stack.sessions.create(Engine.OUTLINE, Engine.alex());
             String opening = created.currentScene.sceneId();
             awaitBranches(stack, created.id);
-
             stack.sessions.choose(created.id, "stairs");
-            String windowId = SceneNode.preparedId(opening, "window", SceneRequest.NONE);
-            SceneNode unused = stack.tree.readNode(created.id, windowId).orElseThrow();
-            assertFalse(unused.visited);
-            assertEquals("window", unused.fromChoiceId);
-            assertEquals("Rain hits the windowsill.", unused.scene.blocks().getFirst().text());
-
+            assertTrue(stack.tree.findChild(created.id, opening, "window", SceneRequest.NONE).isPresent());
+            int calls = stack.client.sceneCallCount();
             GameSession atStairs = stack.sessions.require(created.id);
             stack.sessions.rewind(created.id, opening, atStairs.currentScene.sceneId(), atStairs.state.stateVersion);
-            var adopted = stack.sessions.choose(created.id, "window");
-            GameSession viaWindow = adopted.session();
-            assertEquals("Rain hits the windowsill.", viaWindow.currentScene.blocks().getFirst().text());
-            assertEquals(windowId, viaWindow.currentScene.sceneId());
-            assertTrue(adopted.fromSpeculativeCache(),
-                    "adopting a retained candidate must not generate live");
-            assertTrue(stack.tree.readNode(created.id, windowId).orElseThrow().visited);
-
-            var history = new SessionHistoryService(stack.repository, stack.tree)
-                    .read(created.id, viaWindow.currentScene.sceneId(), 0, null, 20);
-            assertTrue(history.entries().getFirst().restorable(), "the opening can be rewound to");
-            assertFalse(history.entries().getLast().restorable(), "the current head cannot");
+            assertEquals(calls, stack.client.sceneCallCount(),
+                    "saved branches must not be generated again after a rewind");
         } finally {
             stack.close();
         }

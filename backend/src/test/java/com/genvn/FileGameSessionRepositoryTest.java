@@ -288,6 +288,23 @@ class FileGameSessionRepositoryTest {
     }
 
     @Test
+    void aLeftoverLegacyPathThatCannotBeDeletedMustNotDropTheDirectorySave() throws Exception {
+        FileGameSessionRepository repository = new FileGameSessionRepository(new ObjectMapper(), properties());
+        GameSession session = session("mixed");
+        session.sceneCounter = 10;
+        repository.save(session);
+
+        Path leftover = legacyPath("mixed");
+        Files.createDirectories(leftover);
+        Files.writeString(leftover.resolve("stuck"), "an undeletable leftover");
+
+        assertFalse(repository.delete(session.id), "the leftover must fail closed");
+        assertFalse(session.deleted);
+        assertEquals(10, new FileGameSessionRepository(new ObjectMapper(), properties())
+                .find(session.id).orElseThrow().sceneCounter, "the latest directory save must still load");
+    }
+
+    @Test
     void aSessionIdThatIsNotASessionIdCanNeverReachTheFilesystem() throws Exception {
         Files.createDirectories(sessions());
         Path outsider = data.resolve("outside.json");

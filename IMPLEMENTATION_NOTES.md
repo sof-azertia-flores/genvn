@@ -175,7 +175,7 @@ against a 12-op allow-list.
 
 ---
 
-## Tests (246, `./gradlew test`)
+## Tests (251, `./gradlew test`)
 
 The three correctness cases from the brief are tested by name:
 
@@ -761,4 +761,38 @@ node: the story changes by choosing differently.
 
 `SaveTreeRewindTest` covers restore-without-regeneration and unused-branch adoption.
 History entries expose `restorable`; the 剧情回顾 dialog offers **从这里重新选择**.
-246 backend tests, 69 frontend regression tests.
+
+## Scene-tree audit fixes, settings, player card (2026-09-12)
+
+A review of the rewind save format found several ways a crash or a branch change could
+corrupt the tree or leak art across routes. Those are closed; the menu also grew a live
+settings editor.
+
+- **Node ids are never reused.** Loading a save raises `sceneCounter` past every `scene_NNN`
+  already on disk. A commit refuses to overwrite a visited node and mints the next free id
+  instead, so a crash between the node write and `session.json` cannot parent a scene to itself.
+- **Late continuation updates the tree node**, not only `session.json`, so rewinding to a
+  chapter ending still offers 「继续下一章」.
+- **`pendingArc` is stored on the node** and restored on rewind. In-flight planners key by a
+  process-local epoch (bumped on rewind), so a plan from route A cannot land on route B or block
+  B from planning. Walking forward on the same path still accepts a late outline.
+- **Character pictures follow appearance.** Rewind drops NPC art that no longer belongs to the
+  restored story. Adopting a named role keeps a READY spare's prompt and file; a later route
+  whose appearance text no longer matches replaces that file instead of showing the old face.
+- **A missing rewind point stays unhealthy.** `repository.save` can no longer flip `saveHealthy`
+  to true when the current node file is absent; `require()` retries the write.
+- **Delete leftover-first.** When a directory save and a leftover `<id>.json` coexist, the
+  leftover is removed before the directory is renamed. A leftover that cannot go leaves the
+  latest progress in place.
+- **Rewind does not regenerate saved children.** Prefetch skips a choice that already has a
+  tree child. Nested prepared ids that would exceed 160 characters are hashed (`p_` + 16 hex).
+- **剧情回顾** disables rewind and explains why while a submitted choice is still on screen.
+- **设置** (setup masthead and in-game menu) edits every key in `application.yml`. Secrets are
+  never returned. Bind address, port and data-dir still need a restart; LLM, image, speculation,
+  continuation, access key and CORS take effect immediately via live property beans and
+  reloadable clients.
+- **我的角色** shows the player card under the name.
+
+`SaveTreeIntegrityTest`, `RuntimeSettingsTest`, `SceneTreeStoreTest` nested-id coverage and
+the mixed-layout delete case lock these in.
+

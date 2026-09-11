@@ -4,8 +4,12 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.genvn.dice.CheckResult;
 import com.genvn.game.GameState;
 import com.genvn.narrative.SceneBundle;
+import com.genvn.story.ArcOutline;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -55,6 +59,12 @@ public class SceneNode {
     /** The compiled story as of this node, stored once per distinct story under stories/. */
     public String storyHash;
 
+    /**
+     * Next-arc outline that belonged to this node. Restored on rewind so a plan from another
+     * path cannot land on this one, and a chapter ending that already has a continuation keeps it.
+     */
+    public ArcOutline pendingArc;
+
     /** False while this is a prepared candidate that play has never passed through. */
     public boolean visited;
 
@@ -67,13 +77,39 @@ public class SceneNode {
     /**
      * Stable id for a candidate that was generated ahead of a choice. Distinct from the
      * {@code scene_NNN} id the chosen path receives at commit, so an unused sibling can sit
-     * beside the played child without colliding.
+     * beside the played child without colliding. Nested full-parent concatenation is hashed
+     * once it would exceed the on-disk id limit.
      */
     public static String preparedId(String parentNodeId, String choiceId, String outcome) {
         String parent = parentNodeId == null || parentNodeId.isBlank() ? "root" : parentNodeId;
         String choice = choiceId == null || choiceId.isBlank() ? "open" : choiceId;
         String result = outcome == null || outcome.isBlank() ? "NONE" : outcome;
-        return parent + "__" + choice + "__" + result;
+        String raw = parent + "__" + choice + "__" + result;
+        if (usableNodeId(raw)) return raw;
+        return "p_" + fingerprint(parent + "\0" + choice + "\0" + result);
+    }
+
+    static boolean usableNodeId(String id) {
+        return id != null && id.length() <= 160 && id.matches("[A-Za-z0-9_\\-]+");
+    }
+
+    /** True when this is a counter-minted committed scene, not a retained candidate. */
+    public static boolean sequentialSceneId(String id) {
+        return id != null && id.matches("scene_\\d+");
+    }
+
+    public static Integer sequentialIndex(String id) {
+        if (!sequentialSceneId(id)) return null;
+        return Integer.parseInt(id.substring("scene_".length()));
+    }
+
+    private static String fingerprint(String material) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(material.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest, 0, 8);
+        } catch (Exception e) {
+            throw new IllegalStateException("SHA-256 must be available", e);
+        }
     }
 
     /** A node for a scene that has just been committed. */

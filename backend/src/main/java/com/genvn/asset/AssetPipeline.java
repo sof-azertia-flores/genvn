@@ -108,12 +108,21 @@ public class AssetPipeline implements AssetLookup {
             t.setDaemon(true);
             return t;
         });
-        int n = Math.max(1, props.getConcurrency());
-        for (int i = 0; i < n; i++) {
-            Thread t = new Thread(this::workerLoop, "genvn-image-" + (i + 1));
-            t.setDaemon(true);
-            t.start();
-            workers.add(t);
+        syncWorkers();
+    }
+
+    /** Grow or shrink the worker pool to match {@code image.concurrency}. Extra workers exit on their next idle poll. */
+    public void syncWorkers() {
+        synchronized (workers) {
+            workers.removeIf(t -> !t.isAlive());
+            int want = Math.max(1, props.getConcurrency());
+            int have = (int) workers.stream().filter(Thread::isAlive).count();
+            for (int i = have; i < want; i++) {
+                Thread t = new Thread(this::workerLoop, "genvn-image-" + (workers.size() + 1));
+                t.setDaemon(true);
+                t.start();
+                workers.add(t);
+            }
         }
     }
 
@@ -171,6 +180,10 @@ public class AssetPipeline implements AssetLookup {
             if (!live(s)) return 0;
             if (s.persistenceFailure != null && !persistLocked(s)) return 0;
             for (AssetSpec spec : specs) {
+                AssetRecord existing = s.manifest.records.get(spec.assetId());
+                if (existing != null && appearanceDiverged(existing, spec)) {
+                    dropRecordLocked(s, spec.assetId());
+                }
                 AssetRecord r = s.manifest.records.computeIfAbsent(spec.assetId(), id -> new AssetRecord(spec));
                 if (r.spec.idlePreparation() && !spec.idlePreparation()) {
                     // The appearance is now assigned to a canonically introduced person. Keep the
@@ -724,6 +737,7 @@ public class AssetPipeline implements AssetLookup {
 
     private void workerLoop() {
         while (running) {
+            if (shouldRetireExtraWorker()) return;
             Task task;
             try {
                 task = queue.poll(1, TimeUnit.SECONDS);
@@ -743,6 +757,75 @@ public class AssetPipeline implements AssetLookup {
                 log.error("Assets {}: worker error on {}: {}", task.sessionId(), task.assetId(), e.toString());
             }
         }
+    }
+
+    private boolean shouldRetireExtraWorker() {
+        int cap = Math.max(1, props.getConcurrency());
+        synchronized (workers) {
+            workers.removeIf(t -> !t.isAlive() && t != Thread.currentThread());
+            if (workers.isEmpty() || Thread.currentThread() == workers.get(0)) return false;
+            long alive = workers.stream().filter(t -> t.isAlive() || t == Thread.currentThread()).count();
+            if (alive <= cap) return false;
+            workers.remove(Thread.currentThread());
+            return true;
+        }
+    }
+
+    /**
+     * Drop character pictures whose appearance no longer matches the restored story, so a later
+     * route that reuses an NPC id does not keep showing the previous route's face.
+     */
+    public void dropDivergedCharacterArt(String sessionId, Map<String, String> appearanceBySubject) {
+        if (forgotten.contains(sessionId) || appearanceBySubject == null) return;
+        Session s = sessions.get(sessionId);
+        if (s == null) return;
+        synchronized (s.lock) {
+            if (!live(s)) return;
+            boolean changed = false;
+            for (String assetId : List.copyOf(s.manifest.records.keySet())) {
+                AssetRecord r = s.manifest.get(assetId);
+                if (r == null || r.spec == null || r.spec.kind() == AssetKind.BACKGROUND) continue;
+                String subject = r.spec.subjectId();
+                if (com.genvn.game.PlayerCharacter.ID.equals(subject)) continue;
+                String appearance = appearanceBySubject.get(subject);
+                if (appearance == null) {
+                    dropRecordLocked(s, assetId);
+                    changed = true;
+                    continue;
+                }
+                if (!appearance.isBlank() && r.spec.prompt() != null && !r.spec.prompt().contains(appearance)) {
+                    dropRecordLocked(s, assetId);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                s.manifest.touch();
+                persistLocked(s);
+            }
+        }
+    }
+
+    private static boolean appearanceDiverged(AssetRecord existing, AssetSpec spec) {
+        if (existing.spec == null || spec == null) return false;
+        if (existing.spec.kind() == AssetKind.BACKGROUND || spec.kind() == AssetKind.BACKGROUND) return false;
+        // Spare assignment keeps the drawing; a name/role is not permission to redraw them.
+        if (existing.spec.idlePreparation()) return false;
+        if (existing.status != AssetStatus.READY && !existing.isPendingWork()) return false;
+        String oldPrompt = existing.spec.prompt();
+        String nextPrompt = spec.prompt();
+        return oldPrompt != null && nextPrompt != null && !oldPrompt.equals(nextPrompt);
+    }
+
+    private void dropRecordLocked(Session s, String assetId) {
+        AssetRecord r = s.manifest.records.remove(assetId);
+        if (r == null) return;
+        String key = s.manifest.sessionId + "/" + assetId;
+        Task queuedTask = queued.remove(key);
+        if (queuedTask != null) queue.remove(queuedTask);
+        CompletableFuture<AssetRecord> future = futures.remove(key);
+        if (future != null) future.cancel(false);
+        dependencyWaits.remove(key);
+        if (r.fileName != null) store.deleteFile(s.manifest.sessionId, r.fileName);
     }
 
     /** Fill genuinely spare workers with bounded visual-only reserves, keeping calls for play. */

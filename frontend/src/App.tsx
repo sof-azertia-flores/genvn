@@ -6,6 +6,7 @@ import DevInspector from "./components/DevInspector";
 import DiceOverlay from "./components/DiceOverlay";
 import SetupView from "./components/SetupView";
 import SidePanel from "./components/SidePanel";
+import SettingsDialog from "./components/SettingsDialog";
 import Sprite from "./components/Sprite";
 import CharacterCard from "./components/CharacterCard";
 import TaskQueue from "./components/TaskQueue";
@@ -60,6 +61,7 @@ export default function App() {
   const [showInspector, setShowInspector] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   // The selected line has its own reading turn. A cached next scene must not erase it.
   const [playerTurn, setPlayerTurn] = useState<{ choice: Choice; confirmed: boolean } | null>(null);
   const [readPlayerSceneId, setReadPlayerSceneId] = useState<string | null>(null);
@@ -454,7 +456,12 @@ export default function App() {
   }, [choose, resolvingChoiceId, resumeChoiceId, scene, sessionId, state?.stateVersion]);
 
   const rewind = useCallback(async (nodeId: string) => {
-    if (!sessionId || !scene || !state || requestPending.current || resolvingChoiceId || rollCheck || playerTurn) return;
+    if (!sessionId || !scene || !state) return;
+    if (requestPending.current || resolvingChoiceId || rollCheck || playerTurn) {
+      setShowHistory(false);
+      setError("请先读完当前选择或等待这一幕结束，再回溯。");
+      return;
+    }
     const operation = ++operationId.current;
     requestPending.current = true;
     setBusy(true);
@@ -491,7 +498,7 @@ export default function App() {
     if (!scene) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.repeat || e.isComposing || e.ctrlKey || e.metaKey || e.altKey
-        || showSheet || showInspector || showQueue || showHistory || (rollCheck && !playerTurn) || (busy && !playerTurn)) return;
+        || showSheet || showInspector || showQueue || showHistory || showSettings || (rollCheck && !playerTurn) || (busy && !playerTurn)) return;
       const target = e.target instanceof Element ? e.target : null;
       if (target?.closest("button, a, input, textarea, select, summary, [role='button'], [contenteditable]:not([contenteditable='false'])")) return;
       if (e.key === " " || e.code === "Space" || e.key === "Enter") {
@@ -507,7 +514,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [advance, busy, choicesVisible, choose, playerTurn, rollCheck, scene, showHistory, showInspector, showSheet, showQueue]);
+  }, [advance, busy, choicesVisible, choose, playerTurn, rollCheck, scene, showHistory, showInspector, showSheet, showQueue, showSettings]);
 
   const notices = (
     <div className="notifications">
@@ -535,8 +542,9 @@ export default function App() {
   if (!sessionId || !scene || !state || !story) {
     return (
       <>
-        <SetupView config={config} onStarted={showSession} onLoad={openSession} />
+        <SetupView config={config} onStarted={showSession} onLoad={openSession} onOpenSettings={() => setShowSettings(true)} />
         {notices}
+        {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} onSaved={() => { api.config().then(setConfig).catch(() => undefined); }} />}
         {loadingMessage && (
           <div className="loading">
             <div className="spinner" />
@@ -571,15 +579,16 @@ export default function App() {
 
       <header className="hud">
         <div className="story-heading">
-          <div className="story-tools"><button className="history-trigger" onClick={() => { setShowQueue(false); setShowSheet(false); setShowInspector(false); setShowHistory(true); }} aria-haspopup="dialog" aria-expanded={showHistory}><span aria-hidden="true">☷</span> 剧情回顾</button><span className="story-kicker">CHAPTER {String(progress.arcNumber ?? 1).padStart(2, "0")}</span></div>
+          <div className="story-tools"><button className="history-trigger" onClick={() => { setShowQueue(false); setShowSheet(false); setShowInspector(false); setShowSettings(false); setShowHistory(true); }} aria-haspopup="dialog" aria-expanded={showHistory}><span aria-hidden="true">☷</span> 剧情回顾</button><span className="story-kicker">CHAPTER {String(progress.arcNumber ?? 1).padStart(2, "0")}</span></div>
           <span className="title">{state.currentArcTitle ?? story.spine.arcTitle}</span>
           <span className="beat">{scene.location.name}</span>
         </div>
         <nav className="stage-controls" aria-label="游戏菜单">
-          <button className={`icon-btn queue-trigger ${showQueue ? "on" : ""}`} onClick={() => { setShowHistory(false); setShowSheet(false); setShowInspector(false); setShowQueue(true); }} aria-haspopup="dialog" aria-expanded={showQueue}>
+          <button className={`icon-btn queue-trigger ${showQueue ? "on" : ""}`} onClick={() => { setShowHistory(false); setShowSheet(false); setShowInspector(false); setShowSettings(false); setShowQueue(true); }} aria-haspopup="dialog" aria-expanded={showQueue}>
             <span className={`queue-symbol ${(assets?.active ?? 0) > 0 ? "working" : ""}`} aria-hidden="true">✧</span> 幕后准备
           </button>
-          <button className={`icon-btn ${showSheet ? "on" : ""}`} onClick={() => { setShowHistory(false); setShowQueue(false); setShowInspector(false); setShowSheet((v) => !v); }}>我的角色</button>
+          <button className={`icon-btn ${showSheet ? "on" : ""}`} onClick={() => { setShowHistory(false); setShowQueue(false); setShowInspector(false); setShowSettings(false); setShowSheet((v) => !v); }}>我的角色</button>
+          <button className={`icon-btn ${showSettings ? "on" : ""}`} onClick={() => { setShowHistory(false); setShowQueue(false); setShowInspector(false); setShowSheet(false); setShowSettings(true); }}>设置</button>
           <button className="icon-btn menu-trigger" onClick={returnToSetup}>菜单</button>
         </nav>
       </header>
@@ -684,9 +693,12 @@ export default function App() {
 
       {showHistory && <HistoryDialog sessionId={sessionId} throughSceneId={playerTurn?.confirmed && queued ? queued.scene.sceneId : scene.sceneId}
         throughBlockIndex={playerTurn?.confirmed && queued ? -1 : playerTurn ? blocks.length - 1 : typed.complete ? blockIndex : blockIndex - 1}
-        onClose={() => setShowHistory(false)} onRewind={rewind} />}
+        onClose={() => setShowHistory(false)} onRewind={rewind}
+        rewindBlocked={Boolean(playerTurn || requestPending.current || resolvingChoiceId || rollCheck)} />}
 
-      {showSheet && <SidePanel state={state} story={story} onClose={() => setShowSheet(false)} />}
+      {showSheet && <SidePanel state={state} story={story} cardUrl={displayUrl(assets, "card.player.default")} onClose={() => setShowSheet(false)} />}
+
+      {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} onSaved={() => { api.config().then(setConfig).catch(() => undefined); }} />}
 
       {showQueue && <TaskQueue sessionId={sessionId} sceneId={scene.sceneId} assets={assets}
         onClose={() => setShowQueue(false)} onInspect={() => { setShowQueue(false); setShowInspector(true); }} />}

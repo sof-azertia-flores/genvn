@@ -259,15 +259,22 @@ public class FileGameSessionRepository implements GameSessionRepository {
     }
 
     /**
-     * Removes a save. A directory is renamed out of the way first, which is atomic on one
-     * filesystem: either the save is gone as a whole, or nothing was touched at all and the
-     * session stays playable. Only then are the bytes walked and unlinked, so a file that
-     * refuses to go leaves invisible leftovers rather than a half-deleted save.
+     * Removes a save. A leftover single-file save is deleted first: when both layouts exist the
+     * directory is the latest progress, and touching it before the leftover would leave the
+     * player with the old file if that leftover then refused to go. The directory is then
+     * renamed out of the way atomically, so a rename that cannot start leaves the playable save
+     * intact. Walking the trash is best effort.
      *
      * @return true when nothing for this id is visible on disk any more.
      */
     private boolean purge(String id) {
         try {
+            Path legacy = legacyFile(id);
+            if (Files.exists(legacy)) {
+                // Fail closed before the directory is touched: a leftover that cannot go must
+                // not be able to hide the fact that the latest save was already removed.
+                Files.delete(legacy);
+            }
             Path dir = sessionDir(id);
             if (Files.exists(dir)) {
                 // A leading dot cannot be a session id, so a leftover is never listed or loaded.
@@ -275,7 +282,6 @@ public class FileGameSessionRepository implements GameSessionRepository {
                 move(dir, trash);
                 deleteRecursively(trash);
             }
-            Files.deleteIfExists(legacyFile(id));
             return true;
         } catch (IOException | RuntimeException e) {
             log.warn("Could not delete session {}: {}", id, e.toString());

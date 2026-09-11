@@ -270,6 +270,26 @@ export interface ConfigView {
   imageEnabled: boolean;
 }
 
+export type SettingsKind = "STRING" | "SECRET" | "INTEGER" | "NUMBER" | "BOOLEAN" | "LIST";
+
+export interface SettingsField {
+  key: string;
+  group: string;
+  label: string;
+  hint: string;
+  kind: SettingsKind;
+  value: string | number | boolean | string[] | null;
+  secretSet: boolean;
+  restartRequired: boolean;
+}
+
+export interface SettingsView {
+  file: string;
+  fields: SettingsField[];
+  applied: string[];
+  restartPending: string[];
+}
+
 export interface SessionSummary {
   id: string;
   title: string;

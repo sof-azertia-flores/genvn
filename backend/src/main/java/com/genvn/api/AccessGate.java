@@ -35,15 +35,18 @@ public class AccessGate {
 
     private static final AccessGate OPEN = new AccessGate("");
 
-    private final byte[] key;
+    private final GenvnProperties properties;
+    private final byte[] frozenKey;
 
     @Autowired
     public AccessGate(GenvnProperties properties) {
-        this(properties.getAccessKey());
+        this.properties = properties;
+        this.frozenKey = null;
     }
 
     public AccessGate(String key) {
-        this.key = key == null ? new byte[0] : key.trim().getBytes(StandardCharsets.UTF_8);
+        this.properties = null;
+        this.frozenKey = key == null ? new byte[0] : key.trim().getBytes(StandardCharsets.UTF_8);
     }
 
     /** A gate with no key: the local default, and what tests and hand-wired controllers use. */
@@ -51,15 +54,23 @@ public class AccessGate {
         return OPEN;
     }
 
+    private byte[] keyBytes() {
+        if (properties != null) {
+            String key = properties.getAccessKey();
+            return key == null ? new byte[0] : key.trim().getBytes(StandardCharsets.UTF_8);
+        }
+        return frozenKey == null ? new byte[0] : frozenKey;
+    }
+
     public boolean required() {
-        return key.length > 0;
+        return keyBytes().length > 0;
     }
 
     /** True when the presented value is the configured key, or when no key is configured. */
     public boolean matches(String presented) {
         if (!required()) return true;
         if (presented == null) return false;
-        return MessageDigest.isEqual(key, presented.trim().getBytes(StandardCharsets.UTF_8));
+        return MessageDigest.isEqual(keyBytes(), presented.trim().getBytes(StandardCharsets.UTF_8));
     }
 
     /** Token an {@code <img>} may present for this session's pictures; empty when the gate is open. */
@@ -67,7 +78,7 @@ public class AccessGate {
         if (!required() || sessionId == null) return "";
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(key, "HmacSHA256"));
+            mac.init(new SecretKeySpec(keyBytes(), "HmacSHA256"));
             byte[] digest = mac.doFinal(("asset:" + sessionId).getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest, 0, 16);
         } catch (GeneralSecurityException e) {

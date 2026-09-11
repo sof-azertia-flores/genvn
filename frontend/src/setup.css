@@ -7,7 +7,8 @@
 .setup-masthead { min-height: 65px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 10px 17px 10px 12px; border: 1px solid #ffffffe0; border-radius: 24px; background: linear-gradient(145deg, #ffffff7d, #f1f7ff40); box-shadow: var(--glass-rim), 0 7px 26px #3557810d; -webkit-backdrop-filter: blur(30px) saturate(1.45); backdrop-filter: blur(30px) saturate(1.45); }
 .setup-wordmark { color: #294263; font-size: 22px; font-weight: 650; letter-spacing: -.055em; display: flex; gap: 10px; align-items: center; }
 .wordmark-glyph { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid #ffffffb3; border-radius: 13px; background: linear-gradient(145deg, #b9dcff8f, #a9bffc36); color: #367bca; font-size: 33px; font-weight: 400; letter-spacing: 0; box-shadow: inset 0 1px 0 #fff, 0 3px 9px #7295c219; }
-.setup-mode { display: flex; gap: 7px; align-items: center; font-size: 11px; color: #526a89; }
+.setup-mast-actions { display: flex; align-items: center; gap: 12px; }
+.setup-settings { font-size: 11px; padding: 7px 12px; }
 .setup-mode i { width: 6px; height: 6px; border-radius: 50%; background: #55a988; box-shadow: 0 0 0 3px #80c2a618; }
 .setup-mode b { font-size: 10px; font-weight: 500; color: #617896; border-left: 1px solid #6989ae26; margin-left: 6px; padding-left: 14px; }
 .setup-intro { padding: 50px 3px 37px; }

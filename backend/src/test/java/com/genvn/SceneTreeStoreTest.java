@@ -188,6 +188,23 @@ class SceneTreeStoreTest {
         assertTrue(store.listNodes(session.id).isEmpty());
     }
 
+    @Test
+    @DisplayName("nested prepared ids stay within the on-disk 160-character limit")
+    void nestedPreparedIdsStayWithinLimit() {
+        String parent = "scene_000";
+        String choice = "c".repeat(64);
+        for (int depth = 0; depth < 5; depth++) {
+            parent = SceneNode.preparedId(parent, choice, "NONE");
+            assertTrue(parent.length() <= 160, parent);
+            assertTrue(parent.matches("[A-Za-z0-9_\\-]+"), parent);
+        }
+        SceneNode node = new SceneNode();
+        node.nodeId = parent;
+        node.parentNodeId = "scene_000";
+        store().writeNode("nested", node);
+        assertEquals(parent, store().readNode("nested", parent).orElseThrow().nodeId);
+    }
+
     private long storyFileCount(String sessionId) throws Exception {
         try (var files = Files.list(root.resolve(sessionId).resolve("stories"))) {
             return files.count();

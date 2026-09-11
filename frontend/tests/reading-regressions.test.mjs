@@ -104,10 +104,11 @@ test("normal character and game surfaces omit private beat titles and purposes",
   original.state = { ...original.state, currentBeatId: "beat_reveal", characters: {}, inventory: [], continuityLedger: [],
     player: { ...original.state.player, hp: 10, maxHp: 10, stats: {}, traits: [], conditions: [] } };
   const sheet = harness("components/SidePanel.tsx");
-  sheet.render({ state: original.state, story: original.story, onClose() {} });
+  sheet.render({ state: original.state, story: original.story, cardUrl: "/api/assets/s/card.player.default", onClose() {} });
   const sheetText = JSON.stringify(sheet.tree);
   assert.ok(!sheetText.includes(title)); assert.ok(!sheetText.includes(purpose));
   assert.ok(sheetText.includes("我到旧宅寻找日记。"), "the player's own canon remains accessible");
+  assert.ok(sheetText.includes("sheet-portrait"), "the player card sits under the name");
   const { ui, start } = await app(); await start(original);
   const rendered = JSON.stringify(ui.tree);
   assert.ok(!rendered.includes(title)); assert.ok(!rendered.includes(purpose));

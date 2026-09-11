@@ -287,6 +287,8 @@ The browser never owns game state. It posts a choice and is told what became tru
 | --- | --- | --- |
 | `GET` | `/api/access` | Whether a key is required and whether the `X-Genvn-Key` header sent is right; the one call that needs no key |
 | `GET` | `/api/config` | Which LLM client is live |
+| `GET` | `/api/settings` | Live `application.yml` fields (secrets are never returned) |
+| `PUT` | `/api/settings` | Write selected keys; most take effect immediately, bind address/port/data-dir still need a restart |
 | `POST` | `/api/sessions` | Compile a story, build state, return the first scene |
 | `POST` | `/api/session-creations` | Start an asynchronous opening job; optional UUID `Idempotency-Key` prevents duplicate compilation |
 | `GET` | `/api/session-creations/{id}` | Chinese milestone logs, progress, status and the completed session id |
@@ -309,16 +311,17 @@ The browser never owns game state. It posts a choice and is told what became tru
 cd backend && ./gradlew test
 ```
 
-246 backend tests cover branch isolation, dice routing, invalid generation, scene/version conflicts,
+251 backend tests cover branch isolation, dice routing, invalid generation, scene/version conflicts,
 concurrent file persistence, save failure recovery, retained dialogue, late arc continuation, the
 picture pipeline (planning, one-request-per-picture, bounded concurrency, budget, retries, restart
 reuse, forget), image/text overlap, real branch concurrency, the OpenAI Images adapter against a
 local HTTP double, and that a model call never holds the session monitor. Regression coverage also
 includes HTTP/SSE cancellation, delete/commit races, durable image budgets, new-arc scheduling, and
 binding newly requested pictures to the scene that requested them, plus idle-connection timeouts,
-unreadable manifests, uncapped budgets, retry policy, bounded model-supplied ids, and the access
-key gate (refusals with CORS headers, the key-free probe and preflight, per-save picture tokens).
-69 frontend regression tests run with `cd frontend && node --test tests/*.test.mjs`, including
+unreadable manifests, uncapped budgets, retry policy, bounded model-supplied ids, the access
+key gate (refusals with CORS headers, the key-free probe and preflight, per-save picture tokens),
+scene-tree crash recovery, rewind prefetch skip, and live settings reload.
+72 frontend regression tests run with `cd frontend && node --test tests/*.test.mjs`, including
 bounded choice/compilation recovery, stale-image protection, retries, preload selection, grapheme
 typing, task-dialog behavior, the baked-in backend origin, the key header and the key screen. The backend also verifies transparency, one card per character,
 reference dependencies, true compilation milestones and idempotent concurrent opening requests.
