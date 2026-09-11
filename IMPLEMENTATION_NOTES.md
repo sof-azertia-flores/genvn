@@ -39,9 +39,9 @@ POST /api/sessions/{id}/choices/{choiceId}
   2. BranchCache.takeIfFresh(sceneId, choiceId, SUCCESS|FAILURE|NONE, stateVersion)
        hit  -> use the pre-generated candidate
        miss -> SceneGenerator.generate() right now
-  3. BranchCache.discardAll()     ← every other candidate dies here
+  3. BranchCache.discardAll()     ← in-memory unused candidates die; finished ones were already written to the tree
   4. commitScene()                ← StateReducer validates + applies the delta
-  5. repository.save()            ← data/sessions/<id>.json
+  5. repository.save()            ← data/sessions/<id>/session.json plus nodes/<sceneId>.json
   6. prefetch() the new frontier + maybe plan the next arc
 ```
 
@@ -175,7 +175,7 @@ against a 12-op allow-list.
 
 ---
 
-## Tests (233, `./gradlew test`)
+## Tests (246, `./gradlew test`)
 
 The three correctness cases from the brief are tested by name:
 
@@ -740,3 +740,25 @@ refusals with CORS headers, the key-free probe and preflight, per-save tokens, o
 normalisation. `access.test.mjs` covers the baked-in origin, the header on every request, the
 listener on 401 and the key screen's keep/drop/unreachable behaviour. App tests now flush once
 after the first render, since the setup screen appears only after the access probe answers.
+
+## Branching saves: rewind to a former choice (2026-09-12)
+
+Each save is a directory `data/sessions/<id>/session.json` with an append-only scene tree beside
+it (`nodes/<nodeId>.json`, content-addressed `stories/<hash>.json`). A node is one scene; an
+edge is a choice. Node ids are scene ids, minted from a counter that never goes backwards, so
+they are never reused.
+
+On every commit the engine writes a visited node (scene, state snapshot, sealed dice). Finished
+unused speculative branches are kept as unvisited children keyed `parent__choice__outcome`
+instead of being dropped; in-flight ones are still cancelled. `POST .../nodes/{id}/rewind`
+moves the head to a visited node without re-rolling. Re-taking the same choice restores that
+visited child; taking a different one adopts the retained candidate through `commitScene`.
+`stateVersion` still advances so a stale page 409s.
+
+Legacy single-file saves still load; the next save migrates them. A migrated save can rewind
+to the scene it was on when upgraded, then grows the tree from there. Dice stay sealed per
+node: the story changes by choosing differently.
+
+`SaveTreeRewindTest` covers restore-without-regeneration and unused-branch adoption.
+History entries expose `restorable`; the 剧情回顾 dialog offers **从这里重新选择**.
+246 backend tests, 69 frontend regression tests.

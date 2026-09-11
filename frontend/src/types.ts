@@ -391,6 +391,7 @@ export interface HistoryPage {
     rollSummary: string | null;
     blocks: Block[];
     at: string | null;
+    restorable?: boolean;
   }[];
   nextBeforeSceneId: string | null;
 }

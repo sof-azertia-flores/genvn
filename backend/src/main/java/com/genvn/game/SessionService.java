@@ -14,6 +14,8 @@ import com.genvn.narrative.SceneBundle;
 import com.genvn.narrative.SceneGenerator;
 import com.genvn.narrative.SceneRequest;
 import com.genvn.persistence.GameSessionRepository;
+import com.genvn.persistence.SceneNode;
+import com.genvn.persistence.SceneTreeStore;
 import com.genvn.speculation.BranchCache;
 import com.genvn.speculation.BranchKey;
 import com.genvn.speculation.SpeculativeGenerator;
@@ -24,10 +26,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -53,6 +59,7 @@ public class SessionService {
     private final ObjectMapper mapper;
     private final AssetCoordinator assets;
     private final com.genvn.story.SpareDesignService spareDesigns;
+    private final SceneTreeStore tree;
 
     /** Wiring without a picture pipeline: every asset hook is a no-op. */
     public SessionService(StoryCompiler compiler, SceneGenerator sceneGenerator, StateReducer reducer,
@@ -70,13 +77,24 @@ public class SessionService {
         this(compiler, sceneGenerator, reducer, checkResolver, branchCache, speculative, arcs, repository, mapper, assets, null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     public SessionService(StoryCompiler compiler, SceneGenerator sceneGenerator, StateReducer reducer,
                           CheckResolver checkResolver, BranchCache branchCache,
                           SpeculativeGenerator speculative, ArcContinuationService arcs,
                           GameSessionRepository repository, ObjectMapper mapper, AssetCoordinator assets,
                           com.genvn.story.SpareDesignService spareDesigns) {
+        this(compiler, sceneGenerator, reducer, checkResolver, branchCache, speculative, arcs, repository, mapper,
+                assets, spareDesigns, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SessionService(StoryCompiler compiler, SceneGenerator sceneGenerator, StateReducer reducer,
+                          CheckResolver checkResolver, BranchCache branchCache,
+                          SpeculativeGenerator speculative, ArcContinuationService arcs,
+                          GameSessionRepository repository, ObjectMapper mapper, AssetCoordinator assets,
+                          com.genvn.story.SpareDesignService spareDesigns,
+                          com.genvn.persistence.SceneTreeStore tree) {
         this.spareDesigns = spareDesigns;
+        this.tree = tree;
         this.assets = assets == null ? AssetCoordinator.disabled() : assets;
         this.compiler = compiler;
         this.sceneGenerator = sceneGenerator;
@@ -321,6 +339,7 @@ public class SessionService {
             }
             outcome = roll == null ? SceneRequest.NONE
                     : (roll.success() ? SceneRequest.SUCCESS : SceneRequest.FAILURE);
+            persistReadySiblings(session, new BranchKey(current.sceneId(), choice.id(), outcome));
             baseSceneId = current.sceneId();
             baseVersion = session.state.stateVersion;
             sceneIndex = session.sceneCounter;
@@ -332,23 +351,35 @@ public class SessionService {
         SceneBundle next;
         boolean cacheHit;
         boolean waitedForBranch = false;
+        boolean restoredVisitedChild = false;
         int discardedBeforeGeneration;
         Map<String, CheckResult> carriedDice = Map.of();
         long started = System.currentTimeMillis();
+        BranchKey key = new BranchKey(baseSceneId, choice.id(), outcome);
         try {
             // Use the matching pre-generated candidate if one is ready AND forked from the state
-            // we are still on; else finish waiting for it; else generate now. Prefetch is never
-            // load-bearing, and none of this touches the session.
-            BranchKey key = new BranchKey(baseSceneId, choice.id(), outcome);
+            // we are still on; else finish waiting for it; else a retained tree node; else generate
+            // now. Prefetch is never load-bearing, and none of this touches the session.
             // The choice (including its actual die) is now binding. Stop unused requests now,
             // then move the selected queued candidate ahead of background work without duplicating it.
             discardedBeforeGeneration = speculative.prioritize(session, key);
-            next = branchCache.takeIfFresh(sessionId, key, baseVersion);
-            cacheHit = next != null;
-            if (!cacheHit) {
-                next = branchCache.awaitIfInFlight(sessionId, key, baseVersion, IN_FLIGHT_WAIT_MILLIS);
-                waitedForBranch = next != null;
-                cacheHit = waitedForBranch;
+            SceneNode retained = retainedChild(sessionId, baseSceneId, choice.id(), outcome);
+            if (retained != null && retained.restorable()) {
+                restoredVisitedChild = true;
+                next = retained.scene;
+                cacheHit = true;
+            } else if (retained != null && retained.scene != null) {
+                next = retained.scene;
+                cacheHit = true;
+                if (retained.sceneDice != null) carriedDice = retained.sceneDice;
+            } else {
+                next = branchCache.takeIfFresh(sessionId, key, baseVersion);
+                cacheHit = next != null;
+                if (!cacheHit) {
+                    next = branchCache.awaitIfInFlight(sessionId, key, baseVersion, IN_FLIGHT_WAIT_MILLIS);
+                    waitedForBranch = next != null;
+                    cacheHit = waitedForBranch;
+                }
             }
             if (!cacheHit) {
                 synchronized (session) {
@@ -360,12 +391,13 @@ public class SessionService {
                 }
                 next = sceneGenerator.generate(new SceneRequest(
                         storySnapshot, snapshot, choice, outcome, roll, sceneIndex, false));
-            } else {
+            } else if (!restoredVisitedChild && next.sceneId() != null && !next.sceneId().contains("__")) {
                 next = next.withSceneId("scene_%03d".formatted(sceneIndex));
-                // The branch already cast the dice for the scene it wrote; commit adopts them so the
-                // second-round candidates prepared from those dice stay valid.
                 var branch = branchCache.get(sessionId, key);
                 if (branch != null) carriedDice = branch.diceForNextScene();
+            } else if (!restoredVisitedChild) {
+                var branch = branchCache.get(sessionId, key);
+                if (branch != null && carriedDice.isEmpty()) carriedDice = branch.diceForNextScene();
             }
         } catch (RuntimeException | Error e) {
             // Whatever went wrong, the scene is no longer being resolved: leaving the marker set
@@ -397,10 +429,21 @@ public class SessionService {
                         && (!choice.id().equals(pending.choiceId) || !Objects.equals(roll, pending.roll))) {
                     throw new PendingRollException(pending.choiceId);
                 }
-                // Every other branch is now dead. Discard before committing so nothing stale can be read.
+                // Finished unused siblings were written to the tree before prioritize cancelled
+                // them. Drop whatever is still in memory.
                 int discarded = discardedBeforeGeneration + branchCache.discardAll(sessionId);
 
-                StateReducer.Applied applied = commitScene(session, next, choice, roll, carriedDice);
+                StateReducer.Applied applied;
+                if (restoredVisitedChild) {
+                    SceneNode visited = retainedChild(sessionId, baseSceneId, choice.id(), outcome);
+                    if (visited == null || !visited.restorable()) {
+                        throw new SceneConflictException("This path is no longer available. Reload and choose again.");
+                    }
+                    restoreNode(session, visited);
+                    applied = new StateReducer.Applied(List.of(), List.of());
+                } else {
+                    applied = commitScene(session, next, choice, roll, carriedDice);
+                }
                 session.pendingRoll = null; // the die has been played; nothing is outstanding
                 repository.save(session);
 
@@ -435,6 +478,7 @@ public class SessionService {
                                              Map<String, CheckResult> carriedDice) {
         GameState state = session.state;
         int versionBeforeCommit = state.stateVersion;
+        String parentNodeId = session.currentNodeId;
 
         SceneStateProjector.register(session.story, state, scene);
         scene = assets.prepareSceneAssets(session, scene);
@@ -457,6 +501,7 @@ public class SessionService {
         session.finished = session.currentScene.choices().isEmpty();
         // Location, text and scene counters also change when the model proposes no delta.
         state.stateVersion = Math.max(state.stateVersion, versionBeforeCommit + 1);
+        persistCommittedNode(session, parentNodeId, session.currentScene, choice, roll, outcomeOf(roll));
 
         log.info("Session {}: committed {} -- state v{}, beat {}, {} op(s) applied, {} rejected, hp {}/{}, {} item(s)",
                 session.id, scene.sceneId(), state.stateVersion, state.currentBeatId,
@@ -555,6 +600,162 @@ public class SessionService {
         return changed;
     }
 
+    // ------------------------------------------------------------------ scene tree
+
+    /**
+     * Pointer move, not a commit: restore a previously visited node and its sealed dice.
+     * {@code stateVersion} still moves forward so a page that is still on the later scene 409s.
+     */
+    public GameSession rewind(String sessionId, String nodeId, String expectedSceneId, int expectedStateVersion) {
+        GameSession session = require(sessionId);
+        synchronized (session) {
+            if (session.deleted) throw new SessionNotFoundException("This session has been deleted.");
+            if (session.currentScene == null) throw new NotFoundException("Session " + sessionId + " has no current scene");
+            if (!Objects.equals(expectedSceneId, session.currentScene.sceneId())
+                    || expectedStateVersion != session.state.stateVersion) {
+                throw new SceneConflictException("This scene has already changed. Reload it and choose again.");
+            }
+            if (session.resolvingChoiceId != null) {
+                throw new ChoiceResolvingException(session.resolvingChoiceId);
+            }
+            if (tree == null) {
+                throw new IllegalArgumentException("This save cannot rewind: the scene tree is not available.");
+            }
+            SceneNode node = tree.readNode(sessionId, nodeId)
+                    .orElseThrow(() -> new NotFoundException("没有可以回到的这一幕"));
+            if (!node.restorable()) {
+                throw new IllegalArgumentException("这一幕还没有成为走过的情节，不能从这里重新选择。");
+            }
+            if (nodeId.equals(session.currentNodeId)) {
+                return copySession(session);
+            }
+            restoreNode(session, node);
+            repository.save(session);
+            speculative.prefetch(session);
+            log.info("Session {}: rewound to {} (state v{})", sessionId, nodeId, session.state.stateVersion);
+            return copySession(session);
+        }
+    }
+
+    private SceneNode retainedChild(String sessionId, String parentNodeId, String choiceId, String outcome) {
+        if (tree == null) return null;
+        return tree.findChild(sessionId, parentNodeId, choiceId, outcome).orElse(null);
+    }
+
+    /**
+     * Keep finished unused candidates as unvisited children. In-flight ones are still cancelled:
+     * they would keep spending tokens for a rewind that may never happen.
+     */
+    private void persistReadySiblings(GameSession session, BranchKey selected) {
+        if (tree == null || session.currentScene == null) return;
+        String storyHash = writeStoryQuiet(session);
+        if (storyHash == null) return;
+        String parentId = session.currentScene.sceneId();
+        for (var branch : branchCache.list(session.id)) {
+            if (branch.key().equals(selected) || !branch.isReady()) continue;
+            if (!parentId.equals(branch.key().sceneId())) continue;
+            SceneBundle scene = branch.future().getNow(null);
+            if (scene == null) continue;
+            String nodeId = SceneNode.preparedId(parentId, branch.key().choiceId(), branch.key().outcome());
+            if (tree.readNode(session.id, nodeId).isPresent()) continue;
+            Choice sibling = session.currentScene.choice(branch.key().choiceId());
+            CheckResult die = sibling != null && sibling.hasCheck() ? session.sceneDice.get(sibling.id()) : null;
+            SceneBundle named = scene.withSceneId(nodeId);
+            SceneNode node = SceneNode.prepared(parentId, named, branch.key().choiceId(),
+                    sibling == null ? null : sibling.text(), die, branch.key().outcome(), storyHash);
+            if (branch.diceForNextScene() != null && !branch.diceForNextScene().isEmpty()) {
+                node.sceneDice = new LinkedHashMap<>(branch.diceForNextScene());
+            }
+            try {
+                tree.writeNode(session.id, node);
+            } catch (RuntimeException e) {
+                log.warn("Session {}: could not keep unused branch {}: {}", session.id, nodeId, e.toString());
+            }
+        }
+    }
+
+    private void persistCommittedNode(GameSession session, String parentNodeId, SceneBundle scene,
+                                      Choice choice, CheckResult roll, String outcome) {
+        session.currentNodeId = scene.sceneId();
+        if (tree == null) return;
+        String storyHash = writeStoryQuiet(session);
+        if (storyHash == null) {
+            session.saveHealthy = false;
+            return;
+        }
+        try {
+            SceneNode node = SceneNode.visited(parentNodeId, scene,
+                    choice == null ? null : choice.id(),
+                    choice == null ? null : choice.text(),
+                    roll, outcome, session.state.deepCopy(mapper), session.sceneDice, storyHash);
+            tree.writeNode(session.id, node);
+        } catch (RuntimeException e) {
+            session.saveHealthy = false;
+            log.warn("Session {}: could not persist scene node {}: {}", session.id, scene.sceneId(), e.toString());
+        }
+    }
+
+    private void restoreNode(GameSession session, SceneNode node) {
+        if (node.storyHash != null && tree != null) {
+            tree.readStory(session.id, node.storyHash).ifPresent(story -> session.story = story);
+        }
+        GameState restored = node.state.deepCopy(mapper);
+        int floor = Math.max(session.state.stateVersion, restored.stateVersion);
+        restored.stateVersion = floor + 1;
+        session.state = restored;
+        session.currentScene = node.scene;
+        session.sceneDice = node.sceneDice == null ? new LinkedHashMap<>() : new LinkedHashMap<>(node.sceneDice);
+        session.currentNodeId = node.nodeId;
+        session.pendingRoll = null;
+        session.finished = node.scene == null || node.scene.choices().isEmpty();
+        session.history = historyAlong(session.id, node);
+    }
+
+    private List<GameSession.HistoryEntry> historyAlong(String sessionId, SceneNode leaf) {
+        List<SceneNode> chain = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        SceneNode current = leaf;
+        while (current != null && seen.add(current.nodeId)) {
+            chain.add(current);
+            current = current.parentNodeId == null || tree == null ? null
+                    : tree.readNode(sessionId, current.parentNodeId).orElse(null);
+        }
+        Collections.reverse(chain);
+        List<GameSession.HistoryEntry> history = new ArrayList<>();
+        for (SceneNode node : chain) {
+            GameSession.HistoryEntry entry = new GameSession.HistoryEntry(
+                    node.nodeId, node.beatId, node.fromChoiceText,
+                    node.roll == null ? null : node.roll.summary(),
+                    node.scene == null || node.scene.blocks().isEmpty() ? null
+                            : truncate(node.scene.blocks().get(0).text(), 120));
+            entry.blocks = node.scene == null ? List.of() : node.scene.blocks();
+            if (node.visitedAt != null) entry.at = node.visitedAt;
+            else if (node.createdAt != null) entry.at = node.createdAt;
+            history.add(entry);
+        }
+        return history;
+    }
+
+    private String writeStoryQuiet(GameSession session) {
+        try {
+            return tree.writeStory(session.id, session.story);
+        } catch (RuntimeException e) {
+            log.warn("Session {}: could not persist compiled story: {}", session.id, e.toString());
+            return null;
+        }
+    }
+
+    private static String outcomeOf(CheckResult roll) {
+        if (roll == null) return SceneRequest.NONE;
+        return roll.success() ? SceneRequest.SUCCESS : SceneRequest.FAILURE;
+    }
+
+    private boolean ensureCurrentNode(GameSession session) {
+        if (session.currentNodeId != null || session.currentScene == null) return false;
+        persistCommittedNode(session, null, session.currentScene, null, null, SceneRequest.NONE);
+        return true;
+    }
+
     /**
      * Bring one save up to the current dice format and write it back. Run for every save at
      * startup and again, cheaply, whenever a save is first touched; a save that already carries
@@ -563,8 +764,9 @@ public class SessionService {
     public boolean migrateSave(String id) {
         GameSession session = require(id);
         synchronized (session) {
-            return session.sceneDice != null && !session.sceneDice.isEmpty()
+            boolean diceReady = session.sceneDice != null && !session.sceneDice.isEmpty()
                     || session.currentScene == null || session.currentScene.choices().stream().noneMatch(Choice::hasCheck);
+            return diceReady && (session.currentNodeId != null || session.currentScene == null);
         }
     }
 
@@ -579,10 +781,11 @@ public class SessionService {
             if ((session.state.recentScenes == null || session.state.recentScenes.isEmpty()) && session.currentScene != null) {
                 session.state.rememberScene(session.currentScene.sceneId(), session.currentScene.blocks());
             }
-            if (ensureSceneDice(session)) {
-                // The dice are now part of the save: write them so a restart cannot cast others.
+            if (ensureSceneDice(session) | ensureCurrentNode(session)) {
+                // The dice and the current node are now part of the save: write them so a restart
+                // cannot recast or lose the rewind point.
                 repository.save(session);
-                log.info("Session {}: cast sealed dice for the current scene of an older save", id);
+                log.info("Session {}: brought an older save up to the current scene-tree format", id);
             }
         }
         return session;

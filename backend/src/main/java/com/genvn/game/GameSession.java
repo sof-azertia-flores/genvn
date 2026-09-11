@@ -70,6 +70,12 @@ public class GameSession {
     public CompiledStory story;
     public GameState state;
     public SceneBundle currentScene;
+    /**
+     * Head of the scene tree: the node id of {@link #currentScene}. Node ids are scene ids
+     * (or a parent__choice__outcome key for a candidate that was generated and not yet played).
+     * Absent in saves written before the tree existed.
+     */
+    public String currentNodeId;
     public List<HistoryEntry> history = new ArrayList<>();
     public int sceneCounter = 0;
     public boolean finished = false;

@@ -117,8 +117,10 @@ The key is transported in the clear over plain HTTP, so only ever expose the bac
    Characters present in the scene have fixed cards at the upper left; the active character's
    transparent sprite stands above the dialogue box. The old remaining-line counter is hidden.
 
-Saves are written to `backend/data/sessions/<id>.json` after every committed scene, and appear in
-the **继续未完的故事** list on the start screen.
+Saves live in `backend/data/sessions/<id>/` (session.json plus a scene tree). They appear in
+the **继续未完的故事** list on the start screen. Open **剧情回顾** and tap **从这里重新选择**
+to return to an earlier scene; that scene's dice stay sealed, so the story changes by picking
+a different choice, not by rolling again.
 
 ## Configuration
 
@@ -178,7 +180,7 @@ server:
   port: 8080             # if you change this, update frontend/genvn.config.json too
 
 genvn:
-  data-dir: data         # saves go to <data-dir>/sessions/<id>.json
+  data-dir: data         # saves go to <data-dir>/sessions/<id>/
   speculation:
     enabled: true        # false to save tokens on a metered API
     max-branches: 6      # prefetch budget per scene
@@ -293,6 +295,7 @@ The browser never owns game state. It posts a choice and is told what became tru
 | `DELETE` | `/api/sessions/{id}` | Delete a save |
 | `POST` | `/api/sessions/{id}/choices/{choiceId}/roll` | **Reveals the server's die**, cast the moment the scene became current; returns it at once, persisted and idempotent |
 | `POST` | `/api/sessions/{id}/choices/{choiceId}` | Commits the choice (using the die already cast), returns roll + state + next scene |
+| `POST` | `/api/sessions/{id}/nodes/{nodeId}/rewind` | Restore a visited scene as the head. Dice on that scene stay sealed; pick a different choice to change the story |
 | `GET` | `/api/sessions/{id}/assets` | Picture status: plan, queue, budget, timings. Lock-free; safe to poll |
 | `POST` | `/api/sessions/{id}/assets/{assetId}/retry` | Retry one failed image; deduplicated, budgeted, and persisted |
 | `GET` | `/api/sessions/{id}/history` | Read canon through `throughSceneId` and `throughBlockIndex`; optional `beforeSceneId`/`limit` pagination |
@@ -306,7 +309,7 @@ The browser never owns game state. It posts a choice and is told what became tru
 cd backend && ./gradlew test
 ```
 
-233 backend tests cover branch isolation, dice routing, invalid generation, scene/version conflicts,
+246 backend tests cover branch isolation, dice routing, invalid generation, scene/version conflicts,
 concurrent file persistence, save failure recovery, retained dialogue, late arc continuation, the
 picture pipeline (planning, one-request-per-picture, bounded concurrency, budget, retries, restart
 reuse, forget), image/text overlap, real branch concurrency, the OpenAI Images adapter against a
@@ -315,7 +318,7 @@ includes HTTP/SSE cancellation, delete/commit races, durable image budgets, new-
 binding newly requested pictures to the scene that requested them, plus idle-connection timeouts,
 unreadable manifests, uncapped budgets, retry policy, bounded model-supplied ids, and the access
 key gate (refusals with CORS headers, the key-free probe and preflight, per-save picture tokens).
-68 frontend regression tests run with `cd frontend && node --test tests/*.test.mjs`, including
+69 frontend regression tests run with `cd frontend && node --test tests/*.test.mjs`, including
 bounded choice/compilation recovery, stale-image protection, retries, preload selection, grapheme
 typing, task-dialog behavior, the baked-in backend origin, the key header and the key screen. The backend also verifies transparency, one card per character,
 reference dependencies, true compilation milestones and idempotent concurrent opening requests.

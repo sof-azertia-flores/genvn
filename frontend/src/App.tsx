@@ -453,6 +453,40 @@ export default function App() {
     void choose(id);
   }, [choose, resolvingChoiceId, resumeChoiceId, scene, sessionId, state?.stateVersion]);
 
+  const rewind = useCallback(async (nodeId: string) => {
+    if (!sessionId || !scene || !state || requestPending.current || resolvingChoiceId || rollCheck || playerTurn) return;
+    const operation = ++operationId.current;
+    requestPending.current = true;
+    setBusy(true);
+    setShowHistory(false);
+    setError(null);
+    setLoadingMessage("正在回到那一幕…");
+    try {
+      const latest = await api.rewind(sessionId, nodeId, scene.sceneId, state.stateVersion);
+      if (operation !== operationId.current) return;
+      showSession(latest);
+    } catch (e) {
+      if (operation !== operationId.current) return;
+      if (e instanceof ApiError && e.code === "scene_conflict") {
+        try {
+          const current = await api.getSession(sessionId);
+          if (operation !== operationId.current) return;
+          showSession(current);
+          setError("场景已更新。已载入最新进度，如需回溯请再打开剧情回顾。");
+          return;
+        } catch (refreshError) {
+          if (operation !== operationId.current) return;
+          setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+        }
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+      requestPending.current = false;
+      setBusy(false);
+      setLoadingMessage(null);
+    }
+  }, [playerTurn, resolvingChoiceId, rollCheck, scene, sessionId, showSession, state]);
+
   useEffect(() => {
     if (!scene) return;
     const onKey = (e: KeyboardEvent) => {
@@ -650,7 +684,7 @@ export default function App() {
 
       {showHistory && <HistoryDialog sessionId={sessionId} throughSceneId={playerTurn?.confirmed && queued ? queued.scene.sceneId : scene.sceneId}
         throughBlockIndex={playerTurn?.confirmed && queued ? -1 : playerTurn ? blocks.length - 1 : typed.complete ? blockIndex : blockIndex - 1}
-        onClose={() => setShowHistory(false)} />}
+        onClose={() => setShowHistory(false)} onRewind={rewind} />}
 
       {showSheet && <SidePanel state={state} story={story} onClose={() => setShowSheet(false)} />}
 

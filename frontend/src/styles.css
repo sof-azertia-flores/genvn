@@ -180,6 +180,7 @@ textarea { min-height: 150px; }
 .history-divider { display: flex; align-items: center; gap: 15px; margin: 20px 0 24px; color: #687c97; font-size: 10px; }.history-divider i { flex: 1; height: 1px; background: #4b6a941f; }
 .history-line { margin: 22px 0; }.history-line strong { color: #276bc0; font-size: 12px; font-weight: 600; }.history-line p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; color: #344661; font-size: 15px; line-height: 1.95; }.history-line.narration p { color: #5a6a81; }
 .history-choice { padding: 16px 19px; border: 1px solid #ffffffbd; border-radius: 20px; background: #ffffff70; margin-bottom: 24px; box-shadow: 0 3px 10px #31558205; }.history-choice > span { color: #2972ca; font-size: 10px; font-weight: 600; }.history-choice p { font-size: 14px; line-height: 1.8; margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }.history-choice small { display: block; margin-top: 10px; color: #637c72; font-size: 10px; line-height: 1.8; }
+.history-rewind { display: block; margin: 4px 0 8px; padding: 8px 16px; color: #286dc0; background: #ffffff80; border: 1px solid #ffffffbd; border-radius: 999px; font-size: 12px; box-shadow: 0 2px 7px #2b4f7b0a; }
 .task-dialog .icon-btn, .drawer .icon-btn, .inspector .icon-btn { color: #366696; background: #ffffff8c; border-color: #ffffffcc; }
 
 /* Character sheet and game outcomes. */

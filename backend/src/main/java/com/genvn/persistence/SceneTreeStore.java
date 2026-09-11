@@ -43,8 +43,8 @@ public class SceneTreeStore {
     static final String NODES_DIR = "nodes";
     static final String STORIES_DIR = "stories";
 
-    /** Node ids are scene ids and story ids are hex hashes; neither may steer a path. */
-    private static final Pattern SAFE_NODE_ID = Pattern.compile("[A-Za-z0-9_\\-]{1,80}");
+    /** Node ids are scene ids or parent__choice__outcome keys; neither may steer a path. */
+    private static final Pattern SAFE_NODE_ID = Pattern.compile("[A-Za-z0-9_\\-]{1,160}");
     private static final Pattern SAFE_HASH = Pattern.compile("[a-f0-9]{4,64}");
 
     private final ObjectMapper mapper;
@@ -144,6 +144,23 @@ public class SceneTreeStore {
         ids.sort(Comparator.naturalOrder());
         for (String id : ids) readNode(sessionId, id).ifPresent(nodes::add);
         return nodes;
+    }
+
+    /**
+     * The child reached by {@code choiceId} (and, when given, this exact outcome) from
+     * {@code parentNodeId}. A visited child wins over a prepared candidate for the same edge.
+     */
+    public Optional<SceneNode> findChild(String sessionId, String parentNodeId, String choiceId, String outcome) {
+        SceneNode visited = null;
+        SceneNode prepared = null;
+        for (SceneNode node : listNodes(sessionId)) {
+            if (!java.util.Objects.equals(parentNodeId, node.parentNodeId)) continue;
+            if (!java.util.Objects.equals(choiceId, node.fromChoiceId)) continue;
+            if (outcome != null && !outcome.equals(node.outcome)) continue;
+            if (node.restorable()) visited = node;
+            else prepared = node;
+        }
+        return Optional.ofNullable(visited != null ? visited : prepared);
     }
 
     public boolean hasNodes(String sessionId) {

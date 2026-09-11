@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 genvn is a local-first, single-player generative visual novel / TRPG: a Java 21 + Spring Boot 3.5
 backend (`backend/`, Gradle) that owns all game state and talks to an OpenAI-compatible chat
 endpoint, and a React 19 + TypeScript + Vite front end (`frontend/`). No database: saves are JSON
-files under `backend/data/sessions/`, pictures under `backend/data/assets/<sessionId>/`. UI text is
+files under `backend/data/sessions/<id>/`, pictures under `backend/data/assets/<sessionId>/`. UI text is
 Chinese; code, prompts and docs are English.
 
 ## Commands

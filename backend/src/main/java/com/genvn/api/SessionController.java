@@ -120,6 +120,16 @@ public class SessionController {
                 session.saveHealthy, session.continuationPending);
     }
 
+    /**
+     * Restore a previously visited scene as the head. Dice on that scene stay sealed; the player
+     * changes the story by picking a different choice, not by rolling again.
+     */
+    @PostMapping("/sessions/{id}/nodes/{nodeId}/rewind")
+    public Dtos.SessionView rewind(@PathVariable String id, @PathVariable String nodeId,
+                                   @Valid @RequestBody Dtos.ChooseRequest request) {
+        return view(sessions.rewind(id, nodeId, request.expectedSceneId(), request.expectedStateVersion()));
+    }
+
     /** Everything the dev inspector needs, in one call. */
     @GetMapping("/sessions/{id}/debug")
     public Map<String, Object> debug(@PathVariable String id) {
@@ -135,6 +145,7 @@ public class SessionController {
         out.put("spine", session.story.spine);
         out.put("bible", session.story.bible);
         out.put("currentScene", session.currentScene);
+        out.put("currentNodeId", session.currentNodeId);
         out.put("history", session.history);
         out.put("pendingArc", session.pendingArc);
         out.put("pendingRoll", session.pendingRoll);

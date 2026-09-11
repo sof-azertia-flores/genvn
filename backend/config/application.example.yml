@@ -73,7 +73,8 @@ llm:
 
 genvn:
   # Where saves are written, relative to the backend directory.
-  # Each committed scene rewrites data-dir/sessions/<session-id>.json
+  # Each save is a directory: data-dir/sessions/<session-id>/session.json plus nodes/ and stories/.
+  # Older single-file saves still load; the next write migrates them.
   data-dir: data
 
   # Unassigned appearance-only designs to keep on hand (at most 3). A design belongs to

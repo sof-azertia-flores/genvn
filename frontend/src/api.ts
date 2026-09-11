@@ -116,6 +116,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ expectedSceneId, expectedStateVersion }),
     }),
+  rewind: (id: string, nodeId: string, expectedSceneId: string, expectedStateVersion: number) =>
+    request<SessionView>(`/sessions/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/rewind`, {
+      method: "POST",
+      body: JSON.stringify({ expectedSceneId, expectedStateVersion }),
+    }),
   debug: (id: string) => request<Record<string, unknown>>(`/sessions/${encodeURIComponent(id)}/debug`),
   tasks: (id: string, signal?: AbortSignal) =>
     request<SessionTasksView>(`/sessions/${encodeURIComponent(id)}/tasks`, { signal }),

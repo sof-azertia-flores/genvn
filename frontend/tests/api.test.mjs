@@ -53,7 +53,12 @@ test("all session paths encode the supplied identifier", async () => {
   globalThis.fetch = async (path) => { paths.push(path); return Response.json({}); };
   await api.getSession("story ?#");
   await api.debug("story ?#");
-  assert.deepEqual(paths, ["/api/sessions/story%20%3F%23", "/api/sessions/story%20%3F%23/debug"]);
+  await api.rewind("story ?#", "scene_000", "scene_002", 4);
+  assert.deepEqual(paths, [
+    "/api/sessions/story%20%3F%23",
+    "/api/sessions/story%20%3F%23/debug",
+    "/api/sessions/story%20%3F%23/nodes/scene_000/rewind",
+  ]);
 });
 
 test("leaving a session can cancel its pending status read", async () => {

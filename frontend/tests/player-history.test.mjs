@@ -235,3 +235,23 @@ test("a scene containing only the canonical player line keeps it fully readable 
   assert.equal(ui.timers.size, 0, "an already read line does not schedule a second reveal");
   ui.unmount();
 });
+
+test("a restorable history scene offers rewind and the current head does not", async () => {
+  const api = { history: async () => ({
+    sessionId: "s",
+    entries: [
+      { sceneId: "scene_000", choiceText: null, restorable: true, blocks: [{ type: "narration", text: "开场。" }] },
+      { sceneId: "scene_001", choiceText: "上楼", restorable: false, blocks: [{ type: "narration", text: "楼梯间。" }] },
+    ],
+    nextBeforeSceneId: null,
+  }) };
+  let rewound = null;
+  const ui = harness("components/HistoryDialog.tsx", { "../api": { api } });
+  ui.render({ sessionId: "s", throughSceneId: "scene_001", throughBlockIndex: 0, onClose() {}, onRewind: (id) => { rewound = id; } });
+  await flush();
+  const buttons = byClass(ui, "history-rewind");
+  assert.equal(buttons.length, 1);
+  buttons[0].props.onClick({ stopPropagation() {} });
+  assert.equal(rewound, "scene_000");
+  ui.unmount();
+});

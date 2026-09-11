@@ -8,6 +8,7 @@ interface Props {
   /** Last completely read block; -1 means no part of this scene has been read yet. */
   throughBlockIndex: number;
   onClose: () => void;
+  onRewind?: (sceneId: string) => void;
 }
 
 /** Where the reader should land once the next page has rendered. */
@@ -20,7 +21,7 @@ type ScrollPlan =
 const BOTTOM_TOLERANCE = 12;
 
 /** Only asks for canonical history through the reader's current position. */
-export default function HistoryDialog({ sessionId, throughSceneId, throughBlockIndex, onClose }: Props) {
+export default function HistoryDialog({ sessionId, throughSceneId, throughBlockIndex, onClose, onRewind }: Props) {
   const [page, setPage] = useState<HistoryPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +113,7 @@ export default function HistoryDialog({ sessionId, throughSceneId, throughBlockI
   return <div className={`task-overlay history-overlay ${closing ? "is-closing" : ""}`} onClick={close}>
     <div className="task-dialog history-dialog" ref={panel} role="dialog" aria-modal="true" aria-labelledby="history-title" aria-describedby="history-description" onClick={(event) => event.stopPropagation()}>
       <header className="task-header"><div><span className="eyebrow">THE PATH YOU HAVE TAKEN</span><h2 id="history-title">剧情回顾</h2></div><button className="dialog-close" ref={closeButton} onClick={close} aria-label="关闭剧情回顾">×</button></header>
-      <p className="task-intro" id="history-description">重读已经走过的情节，留住每一句话与每一次选择。</p>
+      <p className="task-intro" id="history-description">重读已经走过的情节。点「从这里重新选择」会回到那一幕，骰子保持原样，你可以改选另一条路。</p>
       <div className="history-body" ref={body} tabIndex={0} aria-label="已读剧情">
         {page?.nextBeforeSceneId && <button className="history-earlier" disabled={loading} onClick={() => void load(page.nextBeforeSceneId ?? undefined)}>{loading ? "正在翻阅…" : "更早的剧情 ↑"}</button>}
         {error && <div className="queue-notice" role="alert">{error}<button className="icon-btn" disabled={loading} onClick={() => void load(page?.nextBeforeSceneId ?? undefined)}>重试读取</button></div>}
@@ -125,6 +126,11 @@ export default function HistoryDialog({ sessionId, throughSceneId, throughBlockI
             {block.type === "dialogue" && <strong>{block.speakerName ?? (block.speakerId === "player" ? "你" : "人物")}</strong>}
             <p>{block.text}</p>
           </div>)}
+          {entry.restorable && onRewind && (
+            <button className="history-rewind" onClick={(event) => { event.stopPropagation(); onRewind(entry.sceneId); }}>
+              从这里重新选择
+            </button>
+          )}
         </article>)}
       </div>
       <footer className="task-footer"><span>只记录已经读过的故事，未来仍然留白。</span><button onClick={close}>返回此刻 ↗</button></footer>

@@ -64,6 +64,18 @@ public class SceneNode {
 
     public SceneNode() {}
 
+    /**
+     * Stable id for a candidate that was generated ahead of a choice. Distinct from the
+     * {@code scene_NNN} id the chosen path receives at commit, so an unused sibling can sit
+     * beside the played child without colliding.
+     */
+    public static String preparedId(String parentNodeId, String choiceId, String outcome) {
+        String parent = parentNodeId == null || parentNodeId.isBlank() ? "root" : parentNodeId;
+        String choice = choiceId == null || choiceId.isBlank() ? "open" : choiceId;
+        String result = outcome == null || outcome.isBlank() ? "NONE" : outcome;
+        return parent + "__" + choice + "__" + result;
+    }
+
     /** A node for a scene that has just been committed. */
     public static SceneNode visited(String parentNodeId, SceneBundle scene, String fromChoiceId,
                                     String fromChoiceText, CheckResult roll, String outcome,
