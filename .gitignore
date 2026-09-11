@@ -20,6 +20,7 @@ backend/config/application.yml
 probe.png
 
 # OS and editor metadata
+~$*
 .DS_Store
 .idea/
 .vscode/
