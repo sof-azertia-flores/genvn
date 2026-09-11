@@ -8,9 +8,12 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 /**
- * Dice are cast for every checked choice the moment a scene becomes current. Saves written
- * before that change carry no dice for their current scene; at startup each one is loaded once
- * so the dice get cast and written back, instead of waiting for the first request to do it.
+ * Brings every save up to date at startup, once, instead of waiting for the first request.
+ *
+ * Two migrations run here. Dice are cast for every checked choice the moment a scene becomes
+ * current, so a save written before that change gets its dice cast and written back. And a save
+ * still stored as a single JSON file is re-saved into the directory layout that holds the scene
+ * tree. Both are idempotent: a save already in the current shape is left alone.
  */
 @Component
 public class SaveDiceMigration implements ApplicationRunner {
@@ -29,15 +32,22 @@ public class SaveDiceMigration implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         int checked = 0;
         int migrated = 0;
+        int relaid = 0;
         for (GameSessionRepository.SessionSummary summary : repository.list()) {
             checked++;
             try {
                 if (sessions.migrateSave(summary.id())) migrated++;
+                // Casting dice only saves when something changed, so the layout is moved here.
+                if (repository.hasLegacyLayout(summary.id())) {
+                    repository.find(summary.id()).ifPresent(repository::save);
+                    if (!repository.hasLegacyLayout(summary.id())) relaid++;
+                }
             } catch (RuntimeException e) {
-                log.warn("Save {} could not be checked for sealed dice: {}", summary.id(), e.toString());
+                log.warn("Save {} could not be brought up to date: {}", summary.id(), e.toString());
             }
         }
-        log.info("Saves: {} checked; every current scene now carries its sealed dice{}", checked,
-                migrated == checked ? "" : " (" + (checked - migrated) + " could not be loaded)");
+        log.info("Saves: {} checked; every current scene now carries its sealed dice{}{}", checked,
+                migrated == checked ? "" : " (" + (checked - migrated) + " could not be loaded)",
+                relaid == 0 ? "" : "; " + relaid + " moved to the directory save format");
     }
 }
