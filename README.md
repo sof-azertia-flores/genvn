@@ -135,13 +135,18 @@ scene you refused is then written again, prose and choices, against the new fram
 everything after it follows from the new beats as you play them.
 
 It runs as a background job with a progress bar, because it is two model calls. While it runs the
-save takes no choices.
+save takes no choices. If progress reading stops after a connection failure, **重试读取进度**
+resumes the same task without submitting another rewrite. The same recovery works if the task
+finishes but loading the revised save fails; Escape cannot dismiss an active rewrite.
 
 What it never does: erase what you have already read (the meaning of past scenes may change, the
 events do not), delete a character you have met or a place you have been, re-roll a die you have
 already seen, or keep your instruction anywhere afterwards. The text is sent to the model and
 discarded — the only record is the revised story. The scene you refused stays in the scene tree, so
-**从这里重新选择** on it restores the old framework whole if you change your mind.
+**从这里重新选择** on it restores the old framework whole if you change your mind. Rewriting a
+rewritten scene starts from that scene's revised framework, so earlier revisions survive; selecting
+an older scene uses its own framework instead of importing changes from a later branch. Whole-bible
+rewrites include all registered NPC and location profiles, while ordinary scene briefings stay compact.
 
 ## Configuration
 
@@ -343,7 +348,7 @@ The browser never owns game state. It posts a choice and is told what became tru
 cd backend && ./gradlew test
 ```
 
-302 backend tests cover branch isolation, dice routing, invalid generation, scene/version conflicts,
+311 backend tests cover branch isolation, dice routing, invalid generation, scene/version conflicts,
 concurrent file persistence, save failure recovery, retained dialogue, late arc continuation, the
 picture pipeline (planning, one-request-per-picture, bounded concurrency, budget, retries, restart
 reuse, forget), image/text overlap, real branch concurrency, the OpenAI Images adapter against a
@@ -355,10 +360,13 @@ key gate (refusals with CORS headers, the key-free probe and preflight, per-save
 scene-tree crash recovery, rewind prefetch skip, and live settings reload. Story restructuring is
 covered for the beat splice, kept cast and places, the reused die, the refused take surviving as a
 rewindable sibling, the opening's stored pre-state, every concurrent mutation conflicting, and a
-whole-save scan proving the player's instruction is never persisted.
-83 frontend regression tests run with `cd frontend && node --test tests/*.test.mjs`, including
+whole-save scan proving the player's instruction is never persisted. Further regressions cover
+consecutive rewrites, complete large-cast context, and restart recovery of queued future NPC images
+without activating archived routes or losing dependency and retry limits.
+87 frontend regression tests run with `cd frontend && node --test tests/*.test.mjs`, including
 bounded choice/compilation recovery, stale-image protection, retries, preload selection, grapheme
-typing, task-dialog behavior, the baked-in backend origin, the key header and the key screen. The backend also verifies transparency, one card per character,
+typing, task-dialog behavior, rewrite progress recovery and Escape guards, the baked-in backend
+origin, the key header and the key screen. The backend also verifies transparency, one card per character,
 reference dependencies, true compilation milestones and idempotent concurrent opening requests.
 See `IMPLEMENTATION_NOTES.md` for verification and remaining limitations.
 

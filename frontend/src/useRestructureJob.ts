@@ -207,6 +207,9 @@ export default function useRestructureJob(sessionId: string | null) {
     pending,
     error,
     running: pending || (job !== null && job.status !== "FAILED" && job.status !== "READY"),
+    // A stopped reader does not imply that the server stopped rewriting. Offer a GET-only
+    // recovery action independently from the running guard, including a failed READY fetch.
+    canRetry: !pending && error !== null && job !== null,
     begin: (request: RestructureRequest) => { if (sessionId) void run(sessionId, request); },
     retry: () => { if (sessionId && (currentJob.current || savedJob(sessionId))) void run(sessionId); },
     onReady,
