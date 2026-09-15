@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, setAccessKey } from "../api";
 import { resetGuide } from "../onboarding";
+import ThemeSwitcher from "./ThemeSwitcher";
 import { fieldHint, fieldLabel, groupLabel, LanguageSwitcher, parseLang, useLocale, useT } from "../i18n";
 import type { SettingsField, SettingsKind, SettingsView } from "../types";
 
@@ -92,6 +93,7 @@ export default function SettingsDialog({ onClose, onSaved, onGuideReset }: Props
         <header className="task-header">
           <div><span className="eyebrow">RUNTIME CONFIG</span><h2 id="settings-title">{tr("settingsTitle")}</h2></div>
           <div className="settings-header-tools">
+            <ThemeSwitcher />
             <LanguageSwitcher />
             <button className="dialog-close" ref={closeButton} onClick={onClose} aria-label={tr("settingsClose")}>×</button>
           </div>

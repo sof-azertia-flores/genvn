@@ -223,6 +223,9 @@ const zh: Record<string, string> = {
   guideT5Title: "不喜欢就改写它",
   guideT5Body: "「重塑剧情」让你用一句话改写后面的走向，连故事铁律一起改。旁边还有「幕后准备」看后台生成，「我的角色」看状态和物品。",
 
+  themeLabel: "界面主题",
+  themeDefault: "夜色",
+  themeParchment: "羊皮纸",
   backToNow: "返回此刻 ↗",
   you: "你",
   someone: "人物",
@@ -630,6 +633,9 @@ Keep high-definition detail and a slight soft focus together. The visual focus i
   guideT5Title: "Don't like it? Rewrite it",
   guideT5Body: "Rewrite the plot takes one sentence from you and rewrites where the story goes, hard canon included. Beside it, Behind the scenes shows background work and My character shows your state and inventory.",
 
+  themeLabel: "Theme",
+  themeDefault: "Nightfall",
+  themeParchment: "Parchment",
   backToNow: "Back to now ↗",
   you: "You",
   someone: "Someone",

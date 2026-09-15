@@ -1,3 +1,5 @@
+import type { Theme } from "./theme";
+
 /**
  * Placeholder art. The data model already carries backgroundPrompt / visualDescription for a
  * real image provider; until one is wired in, we derive a stable, atmospheric gradient from the
@@ -12,7 +14,8 @@ function hash(text: string): number {
   return Math.abs(h);
 }
 
-export function backdropFor(locationId: string | null | undefined, hint?: string | null): string {
+export function backdropFor(locationId: string | null | undefined, hint?: string | null,
+                            theme: Theme = "default"): string {
   const seed = hash(`${locationId ?? "nowhere"}`);
   const text = `${locationId ?? ""} ${hint ?? ""}`.toLowerCase();
 
@@ -25,6 +28,19 @@ export function backdropFor(locationId: string | null | undefined, hint?: string
 
   const h2 = (hue + 28 + (seed % 24)) % 360;
   const sat = 16 + (seed % 14);
+  // On parchment the stage is paper, so the placeholder has to be a tint rather than a shadow:
+  // same per-location variety, pulled towards warm and light instead of cold and dark. These are
+  // inline styles, which no stylesheet could override.
+  if (theme === "parchment") {
+    const warm = 26 + (hue % 30);
+    const warm2 = 30 + (h2 % 26);
+    const s1 = 20 + (seed % 12);
+    return [
+      `radial-gradient(72% 52% at ${24 + (seed % 40)}% ${18 + (seed % 22)}%, hsl(${warm} ${s1}% 82%) 0%, transparent 62%)`,
+      `radial-gradient(84% 66% at ${62 + (seed % 26)}% ${74 - (seed % 20)}%, hsl(${warm2} ${s1 - 4}% 76%) 0%, transparent 70%)`,
+      `linear-gradient(168deg, hsl(${warm} ${s1 - 2}% 87%) 0%, hsl(${warm2} ${s1}% 78%) 100%)`,
+    ].join(", ");
+  }
   return [
     `radial-gradient(72% 52% at ${24 + (seed % 40)}% ${18 + (seed % 22)}%, hsl(${hue} ${sat + 12}% 22%) 0%, transparent 62%)`,
     `radial-gradient(84% 66% at ${62 + (seed % 26)}% ${74 - (seed % 20)}%, hsl(${h2} ${sat}% 15%) 0%, transparent 70%)`,
@@ -32,9 +48,13 @@ export function backdropFor(locationId: string | null | undefined, hint?: string
   ].join(", ");
 }
 
-export function portraitFor(id: string): string {
+export function portraitFor(id: string, theme: Theme = "default"): string {
   const seed = hash(id);
   const hue = seed % 360;
+  if (theme === "parchment") {
+    const warm = 24 + (hue % 34);
+    return `linear-gradient(165deg, hsl(${warm} 24% 82%) 0%, hsl(${(warm + 22) % 360} 22% 68%) 100%)`;
+  }
   return `linear-gradient(165deg, hsl(${hue} 22% 30%) 0%, hsl(${(hue + 40) % 360} 20% 14%) 100%)`;
 }
 

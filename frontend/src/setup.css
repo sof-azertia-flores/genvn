@@ -11,6 +11,7 @@
 .language-switch { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; border: 1px solid #ffffffbd; background: #ffffff73; }
 .language-switch button { padding: 5px 10px; border: 0; border-radius: 999px; background: transparent; font-size: 11px; color: #3d5878; }
 .language-switch button.on { background: #176de1; color: #fff; }
+.setup-language { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .setup-settings { font-size: 11px; padding: 7px 12px; }
 .setup-mode i { width: 6px; height: 6px; border-radius: 50%; background: #55a988; box-shadow: 0 0 0 3px #80c2a618; }
 .setup-mode b { font-size: 10px; font-weight: 500; color: #617896; border-left: 1px solid #6989ae26; margin-left: 6px; padding-left: 14px; }

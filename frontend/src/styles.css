@@ -199,6 +199,9 @@ textarea { min-height: 150px; }
 .restructure-actions { display: flex; align-items: center; gap: 10px; }
 .settings-header-tools { display: flex; align-items: center; gap: 10px; }
 .language-switch { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; border: 1px solid #ffffffbd; background: #ffffff73; }
+.theme-switch { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; border: 1px solid #ffffffbd; background: #ffffff73; }
+.theme-switch button { padding: 5px 10px; border: 0; border-radius: 999px; background: transparent; font-size: 11px; color: #3d5878; white-space: nowrap; }
+.theme-switch button.on { background: #176de1; color: #fff; }
 .language-switch button { padding: 5px 10px; border: 0; border-radius: 999px; background: transparent; font-size: 11px; color: #3d5878; }
 .language-switch button.on { background: #176de1; color: #fff; }
 .settings-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 8px 12px; }

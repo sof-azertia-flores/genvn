@@ -24,6 +24,7 @@ import type {
 } from "./types";
 import { backdropFor } from "./visual";
 import { LocaleProvider, approachLabel, expressionLabel, parseLang, t, type Lang } from "./i18n";
+import { ThemeContext, applyTheme, readTheme, type Theme } from "./theme";
 
 type Access = "checking" | "required" | "denied" | "open";
 
@@ -31,6 +32,8 @@ export default function App() {
   /** Nothing else talks to the backend until the key question is settled. */
   const [access, setAccess] = useState<Access>("checking");
   const [lang, setLang] = useState<Lang>("zh");
+  // A look, not a setting the story depends on: it lives in this browser, not in the save.
+  const [theme, setThemeState] = useState<Theme>(readTheme);
   const [config, setConfig] = useState<ConfigView | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [story, setStory] = useState<CompiledStory | null>(null);
@@ -93,7 +96,15 @@ export default function App() {
     } catch { /* UI already switched; persist when the backend accepts it */ }
   }, [applyConfig]);
 
-  const shell = (node: ReactNode) => <LocaleProvider lang={lang} onChange={changeLang}>{node}</LocaleProvider>;
+  // Applied from an effect rather than only from main.tsx, so the attribute is correct whenever
+  // App is mounted and a change needs nothing but a state update.
+  useEffect(() => { applyTheme(theme); }, [theme]);
+  const changeTheme = useCallback((next: Theme) => setThemeState(next), []);
+  const shell = (node: ReactNode) => (
+    <ThemeContext.Provider value={{ theme, setTheme: changeTheme }}>
+      <LocaleProvider lang={lang} onChange={changeLang}>{node}</LocaleProvider>
+    </ThemeContext.Provider>
+  );
   const tr = (key: string, vars?: Record<string, string | number>) => t(lang, key, vars);
 
   useEffect(() => {
@@ -651,7 +662,7 @@ export default function App() {
     <div className="stage">
       <Backdrop
         url={displayUrl(assets, scene.location.backgroundAssetId)}
-        fallback={backdropFor(scene.location.id, scene.location.visualDescription)}
+        fallback={backdropFor(scene.location.id, scene.location.visualDescription, theme)}
       />
       <div className="grain" />
 

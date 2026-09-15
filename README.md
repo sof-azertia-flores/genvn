@@ -141,6 +141,16 @@ The art direction box ships filled in with a default house style (`demo_graphic.
 under the English UI) rather than empty. Backdrops, sprites and character cards all follow it;
 rewrite it or clear it whenever you want something else.
 
+### Themes
+
+Two looks, switched from the masthead on the start screen or the settings header in game:
+**夜色 / Nightfall**, the original dark glass, and **羊皮纸 / Parchment**, pale paper with sepia ink
+and serif type throughout — including the reading stage, where the wash over generated artwork
+warms the picture instead of darkening it, so it reads as printed on the page.
+
+The choice is remembered in that browser's `localStorage`, like the first-run guide: it changes
+nothing the model or the save ever sees, so it is not a config-file setting.
+
 ### 重塑剧情 — rewriting the plot you did not want
 
 Rewinding lets you pick a different choice. **重塑剧情** changes what the story *is*. Press it in
@@ -373,7 +383,8 @@ scene-tree crash recovery, rewind prefetch skip, and live settings reload. Story
 covered for the beat splice, kept cast and places, the reused die, the refused take surviving as a
 rewindable sibling, the opening's stored pre-state, every concurrent mutation conflicting, and a
 whole-save scan proving the player's instruction is never persisted.
-98 frontend regression tests run with `cd frontend && node --test tests/*.test.mjs`, including
+105 frontend regression tests run with `cd frontend && node --test tests/*.test.mjs`, including
+theme persistence and restore and the theme-aware placeholder gradients,
 the first-run guide (per-browser records, version and damaged-value handling, skip-counts-as-seen,
 the settings reset), the sample stories and their legal talent spreads, the default art brief in
 both languages, and full zh/en key parity, plus

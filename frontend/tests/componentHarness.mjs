@@ -22,7 +22,8 @@ export function harness(file, stubs = {}, options = {}) {
   const timers = new Map(), listeners = new Map(), images = [], cache = new Map();
   class Element { closest() { return null; } }
   class HTMLElement extends Element { focus() {} }
-  const document = { activeElement: null, documentElement: { lang: "zh-CN" } };
+  // dataset carries the theme attribute the override sheet keys off.
+  const document = { activeElement: null, documentElement: { lang: "zh-CN", dataset: {} } };
   const root = fileURLToPath(new URL("../src/", import.meta.url));
   const storage = options.storage ?? new Map();
   // Separate from sessionStorage, and deliberately only on `window`: api.ts reads the bare

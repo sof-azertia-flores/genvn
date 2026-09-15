@@ -17,7 +17,7 @@ Implementation history, current behavior, and validation, including the visual a
 | P0.7 | Canonical state really changes | **done** — inventory, flags, relations, location, HP, conditions, beats, threads |
 | P0.8 | One-step speculative generation | **done** — one candidate per choice; a check's die is cast ahead and sealed |
 | P0.9 | Invalid LLM output never crashes the app | **done** — repair loop, local normalisation, clean 502 |
-| P0.10 | Actually built, run and tested | **done** — 302 backend tests, 98 frontend tests, plus browser play-throughs |
+| P0.10 | Actually built, run and tested | **done** — 302 backend tests, 105 frontend tests, plus browser play-throughs |
 
 P1 also landed: **Story Arc Continuation** (a second arc is planned in the background and taken up
 when the spine runs out), **file save** after every commit, and a save list on the start screen.
@@ -933,3 +933,41 @@ key does not fail at runtime (`t` falls back to Chinese), which is exactly why i
 `tests/onboarding.test.mjs` and `tests/examples.test.mjs` cover the records, the version rule, the
 damaged-value rule, skip-counts-as-seen, the settings reset, the sample fill and its legal talent
 spread, the art default in both languages, and full key parity.
+
+## Two themes: the original, and parchment (2026-09-16)
+
+The look is now a choice. **夜色 / Nightfall** is the original stylesheet, unchanged. **羊皮纸 /
+Parchment** is pale paper, sepia ink and serif type, across the whole app including the reading
+stage.
+
+The interesting constraint was that the CSS is 378 lines carrying about 500 hardcoded colours
+against only 67 `var()` uses, so tokenising it into two palettes would have meant rewriting nearly
+every rule — and the one thing that must not happen is the original theme shifting under a refactor
+nobody asked for.
+
+- **The base sheets are never edited.** `theme-parchment.css` scopes every rule to
+  `[data-theme="parchment"]`, which adds an attribute selector to a class selector and therefore
+  outranks the base rule regardless of load order, including inside the base sheets' own media
+  queries. `git diff` on `styles.css`/`setup.css` shows additions only (the `.theme-switch` rules),
+  which is the proof that the original renders exactly as it did.
+- **The default theme carries no attribute at all.** `applyTheme("default")` deletes
+  `data-theme` rather than setting it, so there is no selector an override sheet could hook.
+- **The stage flips from dark to light.** `.stage` ships light ink on a dark ground; parchment is
+  the opposite, so its block re-declares the ink tokens dark and `color-scheme: light`. The
+  backdrop gradient changes from a darkening veil to a warm cream one -- the same job (keeping text
+  legible over generated art) done in the other direction, so a picture reads as printed on the
+  page rather than lit from behind.
+- **Two colours live in JavaScript, not CSS.** `backdropFor` and `portraitFor` build placeholder
+  gradients as inline styles, which no stylesheet can override, so both take the theme and return
+  warm, light tints under parchment. They keep their per-location and per-character stability.
+- The theme is a browser preference, stored in `localStorage` beside the onboarding record, not in
+  `application.yml`: nothing about it reaches the model or the save, unlike the language, which the
+  compiler genuinely reads. `main.tsx` applies it before the first paint so the page never renders
+  in one skin and swaps; `App` re-applies it from an effect so mounting App is enough on its own.
+- The switcher sits beside the language switcher, in the setup masthead and the settings header.
+- Parchment restates the base sheets' accessibility fallbacks too: reduced transparency, no
+  `backdrop-filter`, and `prefers-contrast: more`.
+
+`tests/theme.test.mjs` covers the absent attribute for the default, persistence and restore, an
+unknown stored value falling back, the app opening in the stored theme, the switcher's contents, and
+the two JS gradients following the theme while staying stable per subject.

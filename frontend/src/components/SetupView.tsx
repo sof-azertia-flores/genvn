@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import useCreationJob from "../useCreationJob";
 import CompilationProgress from "./CompilationProgress";
+import ThemeSwitcher from "./ThemeSwitcher";
 import { LanguageSwitcher, STAT_I18N, t, useLocale, useT, type Lang } from "../i18n";
 import { STATS, type ConfigView, type SessionSummary, type SessionView, type StatName } from "../types";
 import { DEFAULT_EXAMPLE, EXAMPLES, exKey } from "../examples";
@@ -98,7 +99,7 @@ export default function SetupView({ config, onStarted, onLoad, onOpenSettings }:
     <header className="setup-masthead">
       <span className="setup-wordmark"><span className="wordmark-glyph" aria-hidden="true">✧</span> genvn</span>
       <div className="setup-mast-actions">
-        <div className="setup-language"><LanguageSwitcher /></div>
+        <div className="setup-language"><ThemeSwitcher /><LanguageSwitcher /></div>
         <span className="setup-mode"><i />{config?.mockMode ? tr("offline") : config ? tr("connected") : tr("connecting")}<b>{tr("localSpace")}</b></span>
         {onOpenSettings && <button className="text-button setup-settings" type="button" onClick={onOpenSettings}>{tr("settings")}</button>}
       </div>
