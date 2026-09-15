@@ -71,6 +71,18 @@ const zh: Record<string, string> = {
   artLabel: "整体插图设计风格",
   artPlaceholder: "例如：细腻的水彩插画，保留纸张肌理和手绘线条；以灰蓝、苔绿为主，暖黄色灯光点缀。人物比例写实，衣着参考故事发生的年代，整体安静而略带神秘感。",
   artFoot: "留空时，系统会按故事氛围安排画风。",
+  artDefault: `视觉风格：
+采用极其精致的日系幻想二次元插画风格，介于高端商业动漫插画与柔和半写实绘画之间。整体审美空灵、梦幻、优雅、清澈、细腻，具有高级幻想插画和收藏级角色插画的完成度。避免明显的3D渲染感，也避免传统赛璐璐动画式的硬朗平涂。
+绘制方式：
+使用非常纤细、柔和、低存在感的线稿。轮廓线不要粗黑，而应自然融入颜色与光影之中。上色具有精细数字厚涂与透明水彩相结合的感觉，颜色之间采用大量柔滑、细微的渐变。局部细节高度精雕，但不要产生机械般锐利或杂乱的感觉。整体应呈现手绘插画特有的柔软感，而不是塑料般光滑的CG效果。
+色彩语言：
+以高明度、低至中等饱和度的柔和冷色系为基础。大量使用珍珠白、乳白、银灰、雾蓝、灰绿以及极浅的暖金色。颜色清透、干净、克制，避免鲜艳原色和强烈霓虹色。冷色环境中加入非常细微的暖色高光，让画面既清冷又带有温柔的发光感。阴影不要发黑，而应保持彩色、透明、轻盈。
+光影：
+使用梦幻而柔和的电影级照明。光线具有明显的空气感和包裹感，包括柔和的环境光、逆光、细腻轮廓光以及轻微的体积光。亮部拥有珍珠般清澈的发光效果和非常柔和的 bloom，但高光仍保留纹理和细节，不要大面积死白过曝。明暗交界线应柔软、渐变自然，避免生硬阴影。
+材质表现：
+所有材质都采用极为细腻的刻画方式，突出轻盈、半透明、晶莹、柔软、丝滑和微妙反射的感觉。高光表现得像珍珠、水晶、玻璃和细小宝石折射出的柔光，但反射必须精致克制，而不是强烈的金属镜面效果。加入数量适中的细碎光点、微弱闪烁和晶体般折射，使细节显得华丽，却始终保持秩序感。
+画面质感：
+同时保留高清细节与轻微柔焦效果。视觉重点区域清晰精致，而非重点区域与强光附近具有细腻的朦胧扩散。使用自然的景深和空气透视，让不同空间层次逐渐变柔。最终效果应该像经过高度精修的顶级幻想动漫插画：精致、通透、柔软、华丽，但不艳俗，不油腻，不杂乱。`,
   launchNote: "故事、骰子、每一次相遇，都留在你的世界里。",
   startStory: "让故事开始",
   loadingSave: "正在读取存档…",
@@ -81,9 +93,54 @@ const zh: Record<string, string> = {
   chapterDone: "本章完",
   footerWait: "每一条未选择的路，都曾在此等待。",
   traveler: "旅人",
-  exampleOutline: "我来到一座多年无人居住的旧宅寻找祖父留下的日记。祖父失踪前寄给我一封信，说他在这栋房子里藏了一样不能落入别人手中的东西。附近唯一的邻居警告我不要在午夜后进入二楼，因为这些年来，每到午夜，那里都会传来脚步声。我决定在旧宅住下来调查真相。",
-  exampleBackground: "档案整理员，习惯把混乱的东西排成顺序",
-  exampleTraits: "怕黑但不承认, 记得住细节",
+  "exTitle.oldhouse": "旧宅的日记",
+  "exEra.oldhouse": "现代 · 悬疑",
+  "exOutline.oldhouse": "我来到一座多年无人居住的旧宅寻找祖父留下的日记。祖父失踪前寄给我一封信，说他在这栋房子里藏了一样不能落入别人手中的东西。附近唯一的邻居警告我不要在午夜后进入二楼，因为这些年来，每到午夜，那里都会传来脚步声。我决定在旧宅住下来调查真相。",
+  "exName.oldhouse": "Alex",
+  "exBackground.oldhouse": "档案整理员，习惯把混乱的东西排成顺序",
+  "exTraits.oldhouse": "怕黑但不承认, 记得住细节",
+  "exVisual.oldhouse": "三十岁上下，身形偏瘦，戴一副有些旧的细框眼镜；深色高领毛衣外面套着挡风的长外套，随身带着手电和一本记事本。",
+
+  "exTitle.changan": "长安坊墙下的宵禁",
+  "exEra.changan": "中国古代 · 唐",
+  "exOutline.changan": "我是长安金吾卫的不良帅。这两个月，崇仁坊在宵禁之后接连有人失踪，坊正一口咬定是坊西那口老井闹鬼。可我在井沿闻到的，是只有西市胡商才用得起的苏合香。上面给了我三天，并且交代得很清楚：不许惊动西市，结案文书要写'查无实据'。今夜鼓声一响，坊门就会关上，我和还没找到的人一起被关在里面。",
+  "exName.changan": "裴无咎",
+  "exBackground.changan": "金吾卫不良帅，查过太多被上面按下去的案子",
+  "exTraits.changan": "记仇, 嘴上不饶人, 认得出长安每一条巷子",
+  "exVisual.changan": "三十出头的男子，短须，右侧眉骨上有一道旧刀疤；穿褪成灰的深青色圆领袍，腰间横刀，铜鱼符磨得发亮。",
+
+  "exTitle.mingsea": "海禁下的那本账",
+  "exEra.mingsea": "中国古代 · 明",
+  "exOutline.mingsea": "我在浙东一个临海卫所当书吏。朝廷海禁，片板不许下海，可每月十五的夜里，海面上总有不点灯的船影。千户让我把上个月的军需账重抄一遍，说是原本被雨水泡了。抄到第三页，我看见一行被墨涂掉却还认得出的字——上面是我父亲的名字，而他十年前就'死于倭寇'了。明早我得把抄好的账交上去。",
+  "exName.mingsea": "沈砚",
+  "exBackground.mingsea": "卫所书吏，因为字写得好，所以谁的账都要经他的手",
+  "exTraits.mingsea": "沉得住气, 过目不忘, 不信鬼神",
+  "exVisual.mingsea": "二十四五岁的青年，清瘦，右手指节有常年握笔磨出的茧；一件洗得发白的青色直裰，袖口沾着洗不掉的墨迹。",
+
+  "exTitle.guji": "修复室里的第七页",
+  "exEra.guji": "中国现代",
+  "exOutline.guji": "我在省图书馆的古籍修复室工作。三个月前送来的一部明刻本缺了第七页；今天，我在另一批刚入藏的残卷里找到了它——纸对得上，字口对得上，可页边多了一行不该存在的批注，墨迹新得能闻出味道。我去查登记簿，这批残卷的捐赠人一栏是空的，经手人签名是我自己的字，而我从没签过。",
+  "exName.guji": "周越",
+  "exBackground.guji": "古籍修复师，习惯用一把镊子解决所有问题",
+  "exTraits.guji": "手稳, 话少, 认死理",
+  "exVisual.guji": "三十岁上下的女性，短发别在耳后，戴细框眼镜；素色工作服外套，蓝布袖套上有洗不掉的浆糊痕迹，指甲剪得很短。",
+
+  "exTitle.abbey": "抄经房里的那一整行空白",
+  "exEra.abbey": "欧洲中世纪",
+  "exOutline.abbey": "阿尔卑斯山口的修道院正赶着抄一部要献给主教的圣经。冬至那夜，抄经房里最年长的修士死在自己的书案前，手边摊开的羊皮纸上留着一整行没有抄完的空白。院长说是心疾，让大家继续抄。可我认得那一行的上下文——那段经文，三百年前就该被销毁了。大雪封了山口，主教的人要等到开春才上得来。",
+  "exName.abbey": "安塞尔姆修士",
+  "exBackground.abbey": "抄经修士，入修道院之前当过三年药铺学徒",
+  "exTraits.abbey": "好奇心太重, 守誓, 认得出每个人的笔迹",
+  "exVisual.abbey": "四十岁左右的修士，剃发，指尖常年被墨与草药染成深色；粗羊毛会服，绳带上挂着一串削笔的小刀。",
+
+  "exTitle.prague": "布拉格的夜班电车",
+  "exEra.prague": "欧洲现代",
+  "exOutline.prague": "我在布拉格开夜班电车。57 路每晚最后一班，都会在一个废弃了二十年的车站停满三十秒——调度说那是系统里删不掉的旧时刻表，没人管得了。可从上周开始，有乘客在那一站下车。今晚收车时，我在驾驶座上发现一张 1994 年的车票，背面用铅笔写着我的名字，字迹和我自己的一模一样。",
+  "exName.prague": "马雷克",
+  "exBackground.prague": "夜班电车司机，白天睡觉，认得这座城市所有不亮灯的窗户",
+  "exTraits.prague": "怕吵, 记得住每一张脸, 嘴硬",
+  "exVisual.prague": "四十多岁的男人，胡子拉碴，眼下有常年上夜班留下的青影；旧的交通局制服外套，袖口已经磨出毛边，左手戴着一块停了的表。",
+
   savesLoadError: "无法读取存档列表，请确认后端正在运行后刷新页面。",
   enterFailed: "暂时无法进入故事。",
   compileProgress: "故事准备进度",
@@ -131,6 +188,41 @@ const zh: Record<string, string> = {
   restructureLogAria: "重塑进度日志",
   restructurePreface: "正在按你的要求改写故事框架。",
   restructureUnavailable: "这个存档是更早的版本建立的，开场无法重塑；可以从后面任意一幕重塑。",
+  guideWelcomeEyebrow: "FIRST TIME HERE",
+  guideSkip: "跳过引导",
+  guideNext: "下一步",
+  guidePrev: "上一步",
+  guideDone: "开始写你的故事",
+  guideStep: "第 {n} 步，共 {total} 步",
+  guideReplay: "重新观看新手引导",
+  guideReplayHint: "清除这台浏览器的「已看过」记录，下次打开会重新引导一遍。",
+  guideReplayDone: "已重置。回到开始页就会重新引导。",
+  guideNewBrowser: "看起来这是你第一次在这个浏览器上打开 genvn。",
+
+  guideW1Title: "这是一台会写下去的故事机",
+  guideW1Body: "你写开端，模型接着往下写；每一幕都给你几个选择，骰子决定你做得成还是做不成。故事、骰子、图片全部留在你自己的机器上，没有账号，也不上传。",
+  guideW2Title: "先写一段故事大纲",
+  guideW2Body: "几句话就够：你是谁、在哪里、出了什么事、什么东西不对劲。写得越具体，世界就越像你想要的那个。不知道从哪开始，就点一个示例——故事和角色会一起填好。",
+  guideW3Title: "然后决定你是谁",
+  guideW3Body: "姓名、来处、性格特质和外貌都会进入故事；外貌还会用来画你的立绘。15 点天赋分给六项，它们是检定时加在骰子上的数——感知高的人更容易看见别人漏掉的东西。",
+  guideW4Title: "骰子会当着你的面掷",
+  guideW4Body: "带检定的选项会掷一枚 d20，加上天赋，和难度比大小。骰子由引擎掷、当场公开，模型无权改动。失败不会把故事写死——它只会让你付出代价，然后继续往前。",
+  guideW5Title: "画风由你定",
+  guideW5Body: "画风提示框里已经预填了一套默认风格，场景、立绘和角色卡都会照它来画。想要别的味道，直接改写或清空即可。",
+
+  guideTourEyebrow: "HOW TO PLAY",
+  guideTourDone: "知道了",
+  guideT1Title: "读下去",
+  guideT1Body: "点文字框或按空格继续下一句。文字还在一个个出现时点一下，会直接显示整段。",
+  guideT2Title: "做出选择",
+  guideT2Body: "读到这一幕的最后，选项就会出现在这里。用鼠标点，或者按数字键 1–9。",
+  guideT3Title: "带骰子的选择",
+  guideT3Body: "标着检定的选项会先掷骰子给你看。失败也会推动故事，只是要付出代价——不会让你卡在原地重试。",
+  guideT4Title: "回头看，也可以回头走",
+  guideT4Body: "「剧情回顾」里能重读走过的每一幕，并从任意一幕重新选择。那一幕的骰子保持原样，改变故事的是选择，不是重掷。",
+  guideT5Title: "不喜欢就改写它",
+  guideT5Body: "「重塑剧情」让你用一句话改写后面的走向，连故事铁律一起改。旁边还有「幕后准备」看后台生成，「我的角色」看状态和物品。",
+
   backToNow: "返回此刻 ↗",
   you: "你",
   someone: "人物",
@@ -386,6 +478,18 @@ const en: Record<string, string> = {
   artLabel: "Illustration direction",
   artPlaceholder: "e.g. delicate watercolour with paper grain and drawn lines; grey-blue and moss green, warm lamplight. Realistic proportions, period clothing, quiet and a little uncanny.",
   artFoot: "Leave blank and the engine will pick a style from the story’s mood.",
+  artDefault: `Visual style:
+An extremely refined Japanese-fantasy illustration style, sitting between high-end commercial anime art and soft semi-realistic painting. The overall feel is ethereal, dreamlike, elegant, clear and delicate, finished to the standard of collectible character illustration. Avoid any obvious 3D-render look, and avoid hard cel-shaded flats.
+Drawing:
+Use very fine, soft, low-presence linework. Outlines should never be thick and black; they should settle into the colour and light. Colour it like fine digital painting combined with transparent watercolour, with many smooth, subtle gradients. Detail is sculpted precisely in places, but never mechanically sharp or cluttered. The whole image should keep the softness of hand-painted illustration rather than the plastic smoothness of CG.
+Colour:
+Build on a soft, cool palette of high value and low to medium saturation: pearl white, cream, silver grey, misty blue, grey-green and very pale warm gold. Colours stay clean, clear and restrained -- no vivid primaries, no neon. Let very slight warm highlights enter the cool environment so the image reads cold and gently luminous at once. Shadows must never go black; keep them coloured, transparent and light.
+Light:
+Dreamlike, soft, cinematic lighting with a real sense of air around things: soft ambient light, backlight, delicate rim light and faint volumetric shafts. Bright areas carry a clear pearl-like glow and very soft bloom, but highlights keep their texture -- no large blown-out white. Terminators between light and shadow should be soft and naturally graded, never hard-edged.
+Materials:
+Render every material with great delicacy, favouring what is light, translucent, crystalline, soft, silken and subtly reflective. Highlights should behave like light refracted through pearl, crystal, glass and small gemstones -- precise and restrained, never a strong metallic mirror. Add a measured amount of fine light motes, faint shimmer and crystal refraction so detail feels ornate while staying orderly.
+Finish:
+Keep high-definition detail and a slight soft focus together. The visual focus is crisp and precise; away from it, and near strong light, detail diffuses gently. Use natural depth of field and aerial perspective so spatial layers soften with distance. The result should read as a highly finished, top-tier fantasy anime illustration: refined, luminous, soft and ornate, without being gaudy, greasy or busy.`,
   launchNote: "The story, the dice, every meeting — they stay in your world.",
   startStory: "Begin the story",
   loadingSave: "Opening save…",
@@ -396,9 +500,54 @@ const en: Record<string, string> = {
   chapterDone: "chapter complete",
   footerWait: "Every unchosen path once waited here.",
   traveler: "Traveler",
-  exampleOutline: "I came to an old house that has stood empty for years, looking for the diary my grandfather left. Before he vanished he wrote that he had hidden something here that must not fall into anyone else's hands. The only neighbour warned me not to go up to the second floor after midnight, because every midnight there are footsteps up there. I have decided to stay and find out why.",
-  exampleBackground: "an archivist, used to putting chaos into order",
-  exampleTraits: "afraid of the dark but won't admit it, remembers details",
+  "exTitle.oldhouse": "The diary in the old house",
+  "exEra.oldhouse": "Modern \u00b7 Mystery",
+  "exOutline.oldhouse": "I came to an old house that has stood empty for years, looking for the diary my grandfather left. Before he vanished he wrote that he had hidden something here that must not fall into anyone else's hands. The only neighbour warned me not to go up to the second floor after midnight, because every midnight there are footsteps up there. I have decided to stay and find out why.",
+  "exName.oldhouse": "Alex",
+  "exBackground.oldhouse": "an archivist, used to putting chaos into order",
+  "exTraits.oldhouse": "afraid of the dark but won't admit it, remembers details",
+  "exVisual.oldhouse": "Around thirty, lean, wearing slightly worn thin-rimmed glasses; a dark roll-neck under a long weatherproof coat, a torch and a notebook always to hand.",
+
+  "exTitle.changan": "Curfew under the ward walls of Chang'an",
+  "exEra.changan": "Ancient China \u00b7 Tang",
+  "exOutline.changan": "I am a thief-taker for the Gold Bird Guard of Chang'an. For two months people have been disappearing from Chongren ward after the curfew drum, and the ward warden insists it is the old well on the west side, haunted. But what I smelled at the well kerb was storax \u2014 an incense only the Sogdian merchants of the West Market can afford. I have been given three days and a clear instruction: do not disturb the West Market, and write \"no evidence found\" on the report. When tonight's drum sounds the ward gates close, and I am shut in here with whoever is still taking them.",
+  "exName.changan": "Pei Wujiu",
+  "exBackground.changan": "a Gold Bird Guard thief-taker who has watched too many cases buried from above",
+  "exTraits.changan": "holds a grudge, too sharp-tongued, knows every alley in Chang'an",
+  "exVisual.changan": "A man just past thirty, short beard, an old blade scar across his right brow; a round-collared robe faded from deep blue-green to grey, a sabre at his waist and a bronze fish tally worn bright.",
+
+  "exTitle.mingsea": "The ledger under the sea ban",
+  "exEra.mingsea": "Ancient China \u00b7 Ming",
+  "exOutline.mingsea": "I am a clerk at a coastal garrison in eastern Zhejiang. The throne has banned the sea \u2014 not a plank may leave shore \u2014 and yet on the fifteenth night of every month there are unlit ships out there. The commander told me to copy last month's supply ledger again, saying the original was rain-damaged. On the third page I found a line struck through with ink but still legible: my father's name. He died \"at the hands of pirates\" ten years ago. The fair copy is due in the morning.",
+  "exName.mingsea": "Shen Yan",
+  "exBackground.mingsea": "a garrison clerk whose good hand means every ledger passes through him",
+  "exTraits.mingsea": "keeps his nerve, never forgets a page, does not believe in ghosts",
+  "exVisual.mingsea": "A young man of twenty-four or so, spare of build, a writer's callus on his right knuckle; a blue-grey robe washed pale, ink that will not come out of the cuffs.",
+
+  "exTitle.guji": "The seventh page in the repair room",
+  "exEra.guji": "Modern China",
+  "exOutline.guji": "I work in the rare-book repair room of a provincial library. A Ming block-printed edition arrived three months ago missing its seventh page. Today I found that page in a batch of fragments just accessioned \u2014 the paper matches, the impression matches, but there is a line of annotation in the margin that should not exist, in ink new enough to smell. I went to the register: the donor field for that batch is blank, and the handling signature is my own handwriting. I never signed it.",
+  "exName.guji": "Zhou Yue",
+  "exBackground.guji": "a rare-book conservator who solves everything with a pair of tweezers",
+  "exTraits.guji": "steady hands, says little, will not let a thing go",
+  "exVisual.guji": "A woman of about thirty, short hair tucked behind one ear, thin-rimmed glasses; a plain work coat, blue sleeve guards marked with paste that will not wash out, nails cut short.",
+
+  "exTitle.abbey": "The blank line in the scriptorium",
+  "exEra.abbey": "Medieval Europe",
+  "exOutline.abbey": "The abbey at the Alpine pass is racing to finish a bible promised to the bishop. On the night of the winter solstice the oldest monk in the scriptorium died at his own desk, leaving a whole line unwritten on the vellum in front of him. The abbot called it his heart and told us to keep copying. But I know the passage that line belongs to \u2014 it is text that was supposed to have been destroyed three hundred years ago. The snow has closed the pass, and the bishop's men cannot come up before the thaw.",
+  "exName.abbey": "Brother Anselm",
+  "exBackground.abbey": "a copyist monk who spent three years apprenticed to an apothecary before taking vows",
+  "exTraits.abbey": "far too curious, keeps his vows, knows every man's hand",
+  "exVisual.abbey": "A monk of about forty, tonsured, fingertips permanently stained with ink and herbs; coarse wool habit, a ring of small quill-knives hanging from the cord at his waist.",
+
+  "exTitle.prague": "The night tram in Prague",
+  "exEra.prague": "Modern Europe",
+  "exOutline.prague": "I drive the night tram in Prague. The last run of the 57 stops for a full thirty seconds at a station that has been derelict for twenty years \u2014 dispatch says it is an old timetable the system will not let anyone delete. Since last week, passengers have been getting off there. Tonight, at the end of my shift, I found a 1994 ticket on my driver's seat with my name pencilled on the back, in handwriting identical to my own.",
+  "exName.prague": "Marek",
+  "exBackground.prague": "a night-tram driver who sleeps by day and knows every unlit window in this city",
+  "exTraits.prague": "hates noise, never forgets a face, stubborn about it",
+  "exVisual.prague": "A man in his forties, unshaven, the blue shadow under the eyes that years of night shifts leave; an old transit-authority uniform coat frayed at the cuffs, a stopped watch on his left wrist.",
+
   savesLoadError: "Could not read the save list. Confirm the backend is running, then refresh.",
   enterFailed: "Could not enter the story just now.",
   compileProgress: "Story preparation",
@@ -446,6 +595,41 @@ const en: Record<string, string> = {
   restructureLogAria: "Rewrite progress log",
   restructurePreface: "Rewriting the story framework around your request.",
   restructureUnavailable: "This save was made by an older version, so its opening cannot be rewritten; any later scene can.",
+  guideWelcomeEyebrow: "FIRST TIME HERE",
+  guideSkip: "Skip the guide",
+  guideNext: "Next",
+  guidePrev: "Back",
+  guideDone: "Start writing",
+  guideStep: "Step {n} of {total}",
+  guideReplay: "Show the guide again",
+  guideReplayHint: "Clears this browser's record of having seen it, so the guide runs again next time.",
+  guideReplayDone: "Reset. The guide will run again from the start screen.",
+  guideNewBrowser: "It looks like this is your first time opening genvn in this browser.",
+
+  guideW1Title: "A story machine that keeps writing",
+  guideW1Body: "You write the opening; the model writes what follows. Every scene offers you a few choices, and dice decide whether you pull them off. The story, the dice and the pictures all stay on your own machine \u2014 no account, nothing uploaded.",
+  guideW2Title: "Start with an outline",
+  guideW2Body: "A few sentences is enough: who you are, where you are, what has happened, and what is wrong. The more specific you are, the more the world looks like the one you wanted. If you would rather not start from nothing, pick a sample \u2014 it fills in the story and the character together.",
+  guideW3Title: "Then decide who you are",
+  guideW3Body: "Name, background, traits and appearance all enter the story, and the appearance is what your portrait is drawn from. Fifteen talent points go across six attributes; they are what gets added to the die on a check \u2014 someone with high Perception notices what others walk past.",
+  guideW4Title: "The dice are rolled in the open",
+  guideW4Body: "A choice with a check rolls a d20, adds your talent, and meets a difficulty. The engine rolls it and shows it to you at once; the model has no say in it. Failure never dead-ends the story \u2014 it costs you something and moves on.",
+  guideW5Title: "The look is yours to set",
+  guideW5Body: "The art direction box is already filled with a default style, and backdrops, sprites and character cards all follow it. Want something else? Rewrite it, or clear it entirely.",
+
+  guideTourEyebrow: "HOW TO PLAY",
+  guideTourDone: "Got it",
+  guideT1Title: "Read on",
+  guideT1Body: "Click the text box or press space for the next line. Click while the words are still appearing and the whole line shows at once.",
+  guideT2Title: "Make a choice",
+  guideT2Body: "When you reach the end of a scene, the choices appear here. Click one, or press 1\u20139.",
+  guideT3Title: "Choices with dice",
+  guideT3Body: "A choice marked with a check rolls first, in front of you. Failing still moves the story \u2014 it costs you something rather than leaving you to retry in place.",
+  guideT4Title: "Look back, or go back",
+  guideT4Body: "Recap lets you reread every scene you have played, and pick again from any of them. That scene's dice stay sealed: what changes the story is a different choice, not a reroll.",
+  guideT5Title: "Don't like it? Rewrite it",
+  guideT5Body: "Rewrite the plot takes one sentence from you and rewrites where the story goes, hard canon included. Beside it, Behind the scenes shows background work and My character shows your state and inventory.",
+
   backToNow: "Back to now ↗",
   you: "You",
   someone: "Someone",
@@ -692,6 +876,13 @@ const SETTINGS_EN: Record<string, { label: string; hint: string }> = {
   "image.plan.characters": { label: "People to pre-draw", hint: "Portraits planned at compile time." },
   "image.plan.expressions": { label: "Expression variants", hint: "Comma-separated, e.g. worried,suspicious." },
 };
+
+/**
+ * Both tables, so a test can prove they hold the same keys. A key present in only one language
+ * does not fail anywhere at runtime -- {@link t} quietly falls back to Chinese -- which is exactly
+ * why it is worth a test rather than a code review.
+ */
+export const dictionaries: Record<Lang, Record<string, string>> = { zh, en };
 
 export function parseLang(raw?: string | null): Lang {
   if (!raw) return "zh";

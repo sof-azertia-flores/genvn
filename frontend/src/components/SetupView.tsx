@@ -2,25 +2,30 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import useCreationJob from "../useCreationJob";
 import CompilationProgress from "./CompilationProgress";
-import { LanguageSwitcher, STAT_I18N, t, useLocale, useT } from "../i18n";
+import { LanguageSwitcher, STAT_I18N, t, useLocale, useT, type Lang } from "../i18n";
 import { STATS, type ConfigView, type SessionSummary, type SessionView, type StatName } from "../types";
+import { DEFAULT_EXAMPLE, EXAMPLES, exKey } from "../examples";
 import "../setup.css";
 
 const POINT_BUDGET = 15;
-const EXAMPLE_KEYS = { outline: "exampleOutline", background: "exampleBackground", traits: "exampleTraits" } as const;
+/** Every field a sample fills, so an untouched one can follow a language switch. */
+const SAMPLE_FIELDS = ["Outline", "Name", "Background", "Traits", "Visual"] as const;
 
 interface Props { config: ConfigView | null; onStarted: (session: SessionView) => void | Promise<void>; onLoad: (sessionId: string) => Promise<void>; onOpenSettings?: () => void }
 
 export default function SetupView({ config, onStarted, onLoad, onOpenSettings }: Props) {
   const { lang } = useLocale();
   const tr = useT();
-  const [outline, setOutline] = useState(() => t(lang, "exampleOutline"));
-  const [name, setName] = useState("Alex");
-  const [background, setBackground] = useState(() => t(lang, "exampleBackground"));
-  const [artStyle, setArtStyle] = useState("");
-  const [visualDescription, setVisualDescription] = useState("");
-  const [traits, setTraits] = useState(() => t(lang, "exampleTraits"));
-  const [stats, setStats] = useState<Record<StatName, number>>({ Body: 2, Agility: 2, Perception: 4, Intellect: 3, Will: 3, Presence: 1 });
+  const [outline, setOutline] = useState(() => t(lang, exKey("Outline", DEFAULT_EXAMPLE.id)));
+  const [name, setName] = useState(() => t(lang, exKey("Name", DEFAULT_EXAMPLE.id)));
+  const [background, setBackground] = useState(() => t(lang, exKey("Background", DEFAULT_EXAMPLE.id)));
+  // The art direction ships filled in rather than empty: a default house style is a far better
+  // first result than whatever the compiler would invent, and it is still one edit from being
+  // the player's own.
+  const [artStyle, setArtStyle] = useState(() => t(lang, "artDefault"));
+  const [visualDescription, setVisualDescription] = useState(() => t(lang, exKey("Visual", DEFAULT_EXAMPLE.id)));
+  const [traits, setTraits] = useState(() => t(lang, exKey("Traits", DEFAULT_EXAMPLE.id)));
+  const [stats, setStats] = useState<Record<StatName, number>>({ ...DEFAULT_EXAMPLE.stats });
   const [loadingSave, setLoadingSave] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saves, setSaves] = useState<SessionSummary[]>([]);
@@ -31,11 +36,27 @@ export default function SetupView({ config, onStarted, onLoad, onOpenSettings }:
   const busy = preparing || loadingSave;
   const clock = lang === "en" ? "en-GB" : "zh-CN";
 
+  // Switching language re-renders sample text the player has not touched, and leaves anything
+  // they wrote alone -- including a sample they edited.
   useEffect(() => {
-    setOutline((prev) => stillExample(prev, "exampleOutline") ? t(lang, "exampleOutline") : prev);
-    setBackground((prev) => stillExample(prev, "exampleBackground") ? t(lang, "exampleBackground") : prev);
-    setTraits((prev) => stillExample(prev, "exampleTraits") ? t(lang, "exampleTraits") : prev);
+    setOutline((prev) => translated(prev, "Outline", lang));
+    setName((prev) => translated(prev, "Name", lang));
+    setBackground((prev) => translated(prev, "Background", lang));
+    setTraits((prev) => translated(prev, "Traits", lang));
+    setVisualDescription((prev) => translated(prev, "Visual", lang));
+    setArtStyle((prev) => (untouchedArt(prev) ? t(lang, "artDefault") : prev));
   }, [lang]);
+
+  /** One click fills the whole form, so a first story is never a blank page. */
+  const applyExample = (id: string) => {
+    const example = EXAMPLES.find((entry) => entry.id === id) ?? DEFAULT_EXAMPLE;
+    setOutline(t(lang, exKey("Outline", example.id)));
+    setName(t(lang, exKey("Name", example.id)));
+    setBackground(t(lang, exKey("Background", example.id)));
+    setTraits(t(lang, exKey("Traits", example.id)));
+    setVisualDescription(t(lang, exKey("Visual", example.id)));
+    setStats({ ...example.stats });
+  };
 
   useEffect(() => {
     let active = true;
@@ -107,8 +128,15 @@ export default function SetupView({ config, onStarted, onLoad, onOpenSettings }:
       </div>
     </section> : <div className="setup-compose">
       <section className="story-paper" aria-labelledby="story-title">
-        <div className="section-caption"><span>{tr("storyCaption")}</span><button className="text-button" disabled={busy} onClick={() => setOutline(tr("exampleOutline"))}>{tr("tryExample")}</button></div>
+        <div className="section-caption"><span>{tr("storyCaption")}</span><span className="sample-caption">{tr("tryExample")}</span></div>
         <h2 id="story-title">{tr("storyHeading")}</h2>
+        <div className="sample-row" role="group" aria-label={tr("tryExample")}>
+          {EXAMPLES.map((example) => <button key={example.id} type="button" className="sample-chip" disabled={busy}
+            onClick={() => applyExample(example.id)}>
+            <strong>{t(lang, exKey("Title", example.id))}</strong>
+            <small>{t(lang, exKey("Era", example.id))}</small>
+          </button>)}
+        </div>
         <label className="sr-only" htmlFor="outline">{tr("outline")}</label>
         <textarea id="outline" value={outline} maxLength={6000} onChange={(e) => setOutline(e.target.value)} placeholder={tr("outlinePlaceholder")} />
         <div className="paper-footer"><span>{tr("outlineFoot")}</span><span>{outline.length} / 6000</span></div>
@@ -152,6 +180,18 @@ export default function SetupView({ config, onStarted, onLoad, onOpenSettings }:
   </div></main>;
 }
 
-function stillExample(value: string, key: typeof EXAMPLE_KEYS[keyof typeof EXAMPLE_KEYS]): boolean {
-  return value === t("zh", key) || value === t("en", key);
+/**
+ * A field still holding sample text in either language gets the other language's version;
+ * anything else is the player's own writing and is left exactly as typed.
+ */
+function translated(value: string, field: typeof SAMPLE_FIELDS[number], lang: Lang): string {
+  for (const example of EXAMPLES) {
+    const key = exKey(field, example.id);
+    if (value === t("zh", key) || value === t("en", key)) return t(lang, key);
+  }
+  return value;
+}
+
+function untouchedArt(value: string): boolean {
+  return value === t("zh", "artDefault") || value === t("en", "artDefault");
 }

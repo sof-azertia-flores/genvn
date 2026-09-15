@@ -124,6 +124,23 @@ the **继续未完的故事** list on the start screen. Open **剧情回顾** an
 to return to an earlier scene; that scene's dice stay sealed, so the story changes by picking
 a different choice, not by rolling again.
 
+### First run
+
+The first time a browser opens genvn it gets a short guide: a few pages on the start screen (what
+this is, what the outline is for, what the talent points do, who rolls the dice, where the art style
+comes from), then five bubbles over the stage the first time you enter a story. Skipping counts as
+having seen it. The record lives in that browser's `localStorage` and nowhere else, so a different
+browser or machine is treated as a genuine first visit, and **设置 → 重新观看新手引导** puts it back.
+
+Six sample stories sit above the outline box, spanning Tang Chang'an, a Ming coastal garrison,
+modern China, a medieval European abbey and modern Prague. Clicking one fills the whole form —
+outline, name, background, traits, appearance and the fifteen talent points — so a first story is
+one click away.
+
+The art direction box ships filled in with a default house style (`demo_graphic.txt`, in English
+under the English UI) rather than empty. Backdrops, sprites and character cards all follow it;
+rewrite it or clear it whenever you want something else.
+
 ### 重塑剧情 — rewriting the plot you did not want
 
 Rewinding lets you pick a different choice. **重塑剧情** changes what the story *is*. Press it in
@@ -356,7 +373,10 @@ scene-tree crash recovery, rewind prefetch skip, and live settings reload. Story
 covered for the beat splice, kept cast and places, the reused die, the refused take surviving as a
 rewindable sibling, the opening's stored pre-state, every concurrent mutation conflicting, and a
 whole-save scan proving the player's instruction is never persisted.
-83 frontend regression tests run with `cd frontend && node --test tests/*.test.mjs`, including
+98 frontend regression tests run with `cd frontend && node --test tests/*.test.mjs`, including
+the first-run guide (per-browser records, version and damaged-value handling, skip-counts-as-seen,
+the settings reset), the sample stories and their legal talent spreads, the default art brief in
+both languages, and full zh/en key parity, plus
 bounded choice/compilation recovery, stale-image protection, retries, preload selection, grapheme
 typing, task-dialog behavior, the baked-in backend origin, the key header and the key screen. The backend also verifies transparency, one card per character,
 reference dependencies, true compilation milestones and idempotent concurrent opening requests.

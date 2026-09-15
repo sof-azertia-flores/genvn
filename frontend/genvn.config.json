@@ -3,5 +3,5 @@
   "devServerPort": 5180,
   "devServerHost": "127.0.0.1",
   "backend": "http://localhost:8080",
-  "apiBase": ""
+  "apiBase": "https://gennovel.missazertia.com"
 }

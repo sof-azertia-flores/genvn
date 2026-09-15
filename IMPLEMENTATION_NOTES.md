@@ -17,7 +17,7 @@ Implementation history, current behavior, and validation, including the visual a
 | P0.7 | Canonical state really changes | **done** — inventory, flags, relations, location, HP, conditions, beats, threads |
 | P0.8 | One-step speculative generation | **done** — one candidate per choice; a check's die is cast ahead and sealed |
 | P0.9 | Invalid LLM output never crashes the app | **done** — repair loop, local normalisation, clean 502 |
-| P0.10 | Actually built, run and tested | **done** — 302 backend tests, 83 frontend tests, plus browser play-throughs |
+| P0.10 | Actually built, run and tested | **done** — 302 backend tests, 98 frontend tests, plus browser play-throughs |
 
 P1 also landed: **Story Arc Continuation** (a second arc is planned in the background and taken up
 when the spine runs out), **file save** after every commit, and a save list on the start screen.
@@ -887,3 +887,49 @@ because it is two model calls; the UI shows the same progress bar story creation
 privacy rule and the HTTP surface; `tests/restructure.test.mjs` covers the dialog and the job flow.
 Verified end to end in mock mode on a scratch data directory: framework revised, refused take still
 rewindable, and no trace of the instruction anywhere under `data/`.
+
+## First-run guide, six sample stories, a default art brief (2026-09-15)
+
+A new player met an empty outline box, six unexplained attributes, and no hint that the dice were
+the engine's. Three changes, all front-end only -- no backend, no API, no config.
+
+**The guide is in two halves, recorded per browser.** `src/onboarding.ts` keeps
+`genvn.onboarding.welcome` and `genvn.onboarding.tour` in `localStorage` as a version number.
+`WelcomeDialog` runs on the start screen (what this is, what an outline is for, what the talent
+points do, who rolls the dice, and -- only when pictures are on -- where the art style comes from);
+`StageTour` runs on the first story, five bubbles over the stage. Skipping counts as seeing it:
+a player who does not want the guide is not asked twice. The halves are independent, so someone
+who skipped the welcome still gets the in-game tour.
+
+- Per-browser, not per-save, and never sent anywhere: the guide teaches the app, not a story, so a
+  new browser genuinely is a first visit. An unreadable or older version counts as unseen, which is
+  what lets a future rewrite of the guide show itself again.
+- Private mode, blocked storage and quota errors all fall back to an in-memory copy for that page
+  rather than throwing, the way `api.ts` already treats the access key.
+- 设置 gained **重新观看新手引导**, which clears both records and restarts the guide at once.
+- The tour anchors its bubbles by CSS class rather than by measuring the elements they describe.
+  The stage layout is fixed, so an anchor lands correctly at every width and survives the scene
+  changing underneath it, which a measured rectangle would not. It also swallows space, enter and
+  the arrows in the capture phase, so stepping through the guide never advances the story.
+- It stays out of the way: no bubble while a die is revealing, a player line is on screen, or any
+  dialog is open.
+
+**Six samples instead of one** (`src/examples.ts` + `ex*.<id>` keys in i18n), each filling the whole
+form -- outline, name, background, traits, appearance and a 15-point talent spread -- so the
+shortest path from an empty screen to a playable story is one click. They deliberately span Tang
+Chang'an, Ming coastal garrison, modern China, medieval Europe and modern Europe alongside the
+original modern house: the compiler writes whatever the outline implies, and a player shown only
+one setting assumes that is all it does.
+
+**The art direction ships filled in** with the brief from `demo_graphic.txt` rather than empty, in
+Chinese under the Chinese UI and in English under the English one. A default house style is a far
+better first result than whatever the compiler would invent, and it is still one edit from being the
+player's own. Sample text and the art brief both follow a language switch only while untouched;
+anything the player typed is never overwritten.
+
+`i18n.tsx` now exports `dictionaries` so a test can prove zh and en hold the same keys -- a missing
+key does not fail at runtime (`t` falls back to Chinese), which is exactly why it is worth a test.
+
+`tests/onboarding.test.mjs` and `tests/examples.test.mjs` cover the records, the version rule, the
+damaged-value rule, skip-counts-as-seen, the settings reset, the sample fill and its legal talent
+spread, the art default in both languages, and full key parity.

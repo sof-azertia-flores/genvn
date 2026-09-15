@@ -25,9 +25,13 @@ export function harness(file, stubs = {}, options = {}) {
   const document = { activeElement: null, documentElement: { lang: "zh-CN" } };
   const root = fileURLToPath(new URL("../src/", import.meta.url));
   const storage = options.storage ?? new Map();
+  // Separate from sessionStorage, and deliberately only on `window`: api.ts reads the bare
+  // `localStorage` global, which stays undefined here so the access key keeps its memory path.
+  const persistent = options.localStorage ?? new Map();
   const window = {
     crypto: { randomUUID },
     sessionStorage: { getItem: (k) => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: (k) => storage.delete(k) },
+    localStorage: { getItem: (k) => persistent.get(k) ?? null, setItem: (k, v) => persistent.set(k, String(v)), removeItem: (k) => persistent.delete(k) },
     setTimeout(fn, delay) { const id = ++nextTimer; timers.set(id, { fn, at: now + delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
     addEventListener(type, fn) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(fn); },

@@ -250,9 +250,56 @@ textarea { min-height: 150px; }
 @keyframes blink { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
 @keyframes tumble { 0%,100% { transform: rotate(0) scale(1); } 50% { transform: rotate(8deg) scale(1.05); } }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- first-run guide ---- */
+.guide-overlay { z-index: 80; }
+/* The shared dialog shell reserves height for the big panels; the guide hugs its own text. */
+.guide-dialog { width: min(560px, 100%); min-height: auto; }
+.guide-first { margin: 0 8px 4px; color: #6a7d97; font-size: 11px; }
+.guide-body { margin: 6px 8px 0; color: #3d5878; font-size: 14px; line-height: 2; }
+.guide-dots { display: flex; align-items: center; gap: 7px; margin: 22px 8px 0; }
+.guide-dots i { width: 7px; height: 7px; border-radius: 999px; background: #4b6a9433; }
+.guide-dots i.on { background: #176de1; }
+.guide-dots small { margin-left: auto; color: #8a9cb4; font-size: 10px; }
+.guide-actions { display: flex; align-items: center; gap: 10px; }
+.guide-skip { color: #7a8fa9; font-size: 11px; }
+
+/* The tour anchors by class, not by measuring: the stage layout is fixed, so this lands at
+   every width and survives the scene changing underneath it. */
+.tour-layer { position: absolute; inset: 0; z-index: 75; }
+.tour-scrim { position: absolute; inset: 0; background: #0b1a2ea8; -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); animation: fade-in .18s ease both; }
+.tour-layer.is-closing .tour-scrim, .tour-layer.is-closing .tour-bubble { animation: fade-in .16s ease both reverse; }
+.tour-spot { position: absolute; border: 2px solid #ffffff8c; border-radius: 22px; box-shadow: 0 0 0 9999px #0000, 0 8px 30px #0b1a2e5c; pointer-events: none; animation: fade-in .22s ease both; }
+.tour-spot.at-textbox { left: 24px; right: 24px; bottom: 16px; height: 150px; }
+.tour-spot.at-history { left: 18px; top: 20px; width: 168px; height: 40px; border-radius: 999px; }
+.tour-spot.at-controls { right: 18px; top: 20px; width: min(470px, 62vw); height: 44px; border-radius: 999px; }
+.tour-bubble { position: absolute; width: min(400px, calc(100% - 48px)); padding: 20px 22px; border-radius: 24px; background: #f4f8fdf2; border: 1px solid #ffffffd1; box-shadow: 0 18px 50px #08152a5e; animation: dialog-enter .22s ease both; }
+.tour-bubble.at-textbox { left: 0; right: 0; margin: 0 auto; bottom: 182px; }
+.tour-bubble.at-history { left: 18px; top: 72px; }
+.tour-bubble.at-controls { right: 18px; top: 76px; }
+.tour-bubble .eyebrow { color: #5c7795; }
+.tour-bubble h3 { margin: 6px 0 8px; font: 600 17px var(--serif); color: #22354f; }
+.tour-bubble p { margin: 0; color: #46607f; font-size: 13px; line-height: 1.95; }
+.tour-foot { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+.tour-dots { display: flex; gap: 6px; }
+.tour-dots i { width: 6px; height: 6px; border-radius: 999px; background: #4b6a9433; }
+.tour-dots i.on { background: #176de1; }
+.tour-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.tour-actions button { padding: 7px 14px; border-radius: 999px; border: 1px solid #ffffffbd; background: #ffffff8f; color: #3d5878; font-size: 12px; }
+.tour-actions .text-button { border: 0; background: transparent; color: #7a8fa9; font-size: 11px; }
+.tour-actions .btn { border: 0; }
+
+/* A browser preference, not a server setting, so it sits outside the saved field list. */
+.settings-guide { display: flex; align-items: center; gap: 16px; margin: 4px 8px 0; padding: 14px 16px; border: 1px solid #ffffffbd; border-radius: 18px; background: #ffffff63; }
+.settings-guide > div { display: grid; gap: 3px; }
+.settings-guide span { font-size: 12px; font-weight: 600; color: #3d5878; }
+.settings-guide small { color: #6a7d97; font-size: 10px; line-height: 1.6; }
+.settings-guide button { margin-left: auto; white-space: nowrap; }
+
 @media (min-width: 1700px) { .textbox { bottom: 36px; width: min(1320px, calc(100% - 150px)); }.textbox-inner { padding: 27px 38px 21px; }.line { min-height: 100px; }.featured-sprite { bottom: 165px; right: 13%; }.cast { top: 175px; }.hud { padding-top: 32px; } }
 @media (max-width: 1000px) { .stage-controls .icon-btn { padding: 9px 11px; font-size: 11px; }.hud .beat > span { display: none; }.cast { top: 155px; max-width: 45%; }.featured-sprite { right: 2%; width: 47vw; bottom: 165px; }.textbox { width: calc(100% - 48px); bottom: 20px; }.textbox-inner { padding: 21px 26px 15px; } }
 @media (max-width: 640px) {
+  .tour-bubble { width: calc(100% - 32px); left: 16px; right: 16px; margin: 0; }.tour-bubble.at-textbox { bottom: auto; top: 96px; }.tour-bubble.at-history, .tour-bubble.at-controls { left: 16px; right: 16px; top: 72px; }.tour-spot.at-controls { left: 16px; right: 16px; width: auto; }.tour-foot { flex-wrap: wrap; }.guide-actions { flex-wrap: wrap; }
   .restructure-dialog { width: 100%; }.restructure-actions { flex-wrap: wrap; }.restructure-meta { flex-direction: column; gap: 4px; }.restructure-progress .compile-log { height: 150px; }
   .hud { padding: 18px 18px 0; display: block; }.story-heading { gap: 8px; padding-right: 10px; }.story-tools { gap: 10px; }.history-trigger { padding: 7px 10px; font-size: 9px; }.story-kicker { font-size: 8px; }.hud .title { font-size: 19px; }.hud .beat { font-size: 10px; }.stage-controls { margin-top: 15px; display: flex; width: max-content; max-width: 100%; padding: 4px; gap: 2px; }.stage-controls .icon-btn { font-size: 10px; padding: 8px 11px; }.queue-symbol { font-size: 13px; }
   .cast { left: 17px; top: 193px; max-width: 49%; }.cast-label { font-size: 9px; margin-bottom: 7px; }.cast-label i { width: 16px; }.cast-roster, .cast-list { gap: 7px; }.cast-card { width: 56px; }.cast-art { border-radius: 12px; }.cast-card figcaption { font-size: 9px; padding-top: 6px; }.cast-card figcaption small { font-size: 7px; padding: 1px 3px; }.cast-initials { font-size: 23px; }
