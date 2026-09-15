@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, setAccessKey } from "../api";
+import { fieldHint, fieldLabel, groupLabel, LanguageSwitcher, parseLang, useLocale, useT } from "../i18n";
 import type { SettingsField, SettingsKind, SettingsView } from "../types";
 
 interface Props {
@@ -10,6 +11,8 @@ interface Props {
 const GROUP_ORDER = ["服务器", "语言模型", "推理力度", "引擎", "预推演与续章", "图片"];
 
 export default function SettingsDialog({ onClose, onSaved }: Props) {
+  const { lang, setLang } = useLocale();
+  const tr = useT();
   const [view, setView] = useState<SettingsView | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -65,10 +68,13 @@ export default function SettingsDialog({ onClose, onSaved }: Props) {
         const typed = String(values["genvn.access-key"] ?? "").trim();
         setAccessKey(typed || null);
       }
+      if (touched["genvn.language"]) {
+        setLang(parseLang(String(values["genvn.language"] ?? "zh")));
+      }
       setTouched({});
       setNotice(next.restartPending.length > 0
-        ? `已写入配置。以下项需重启后端后生效：${next.restartPending.join("、")}。`
-        : "已写入配置，并立即应用到正在运行的后端。");
+        ? tr("settingsRestartPending", { keys: next.restartPending.join(lang === "en" ? ", " : "、") })
+        : tr("settingsApplied"));
       onSaved?.();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -81,35 +87,39 @@ export default function SettingsDialog({ onClose, onSaved }: Props) {
     <div className="task-overlay settings-overlay" onClick={onClose}>
       <div className="task-dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}>
         <header className="task-header">
-          <div><span className="eyebrow">RUNTIME CONFIG</span><h2 id="settings-title">设置</h2></div>
-          <button className="dialog-close" ref={closeButton} onClick={onClose} aria-label="关闭设置">×</button>
+          <div><span className="eyebrow">RUNTIME CONFIG</span><h2 id="settings-title">{tr("settingsTitle")}</h2></div>
+          <div className="settings-header-tools">
+            <LanguageSwitcher />
+            <button className="dialog-close" ref={closeButton} onClick={onClose} aria-label={tr("settingsClose")}>×</button>
+          </div>
         </header>
-        <p className="task-intro">修改会写入后端的 application.yml。密钥不会从服务器回传；监听地址、端口和存档目录仍需重启后端。</p>
-        {loading && <p className="queue-empty" role="status">正在读取配置…</p>}
+        <p className="task-intro">{tr("settingsIntro")}</p>
+        {loading && <p className="queue-empty" role="status">{tr("settingsLoading")}</p>}
         {error && <div className="queue-notice" role="alert">{error}</div>}
         {notice && <div className="settings-notice" role="status">{notice}</div>}
         {view && (
           <>
-            <nav className="settings-tabs" aria-label="配置分组">
+            <nav className="settings-tabs" aria-label={tr("settingsGroups")}>
               {groups.map((name) => (
-                <button key={name} className={name === group ? "on" : ""} onClick={() => setGroup(name)}>{name}</button>
+                <button key={name} className={name === group ? "on" : ""} onClick={() => setGroup(name)}>{groupLabel(lang, name)}</button>
               ))}
             </nav>
             <div className="settings-body">
               {fields.map((field) => (
                 <label className="settings-field" key={field.key}>
-                  <span>{field.label}{field.restartRequired && <small>需重启</small>}</span>
+                  <span>{fieldLabel(lang, field)}{field.restartRequired && <small>{tr("settingsRestart")}</small>}</span>
                   {editor(field, draft[field.key] ?? "", (value) => {
                     setDraft((prev) => ({ ...prev, [field.key]: value }));
                     setTouched((prev) => ({ ...prev, [field.key]: true }));
-                  })}
-                  <small>{field.hint}</small>
+                    if (field.key === "genvn.language") setLang(parseLang(value));
+                  }, tr)}
+                  <small>{fieldHint(lang, field)}</small>
                 </label>
               ))}
             </div>
             <footer className="task-footer">
               <span>{view.file}</span>
-              <button className="btn" disabled={saving} onClick={() => void save()}>{saving ? "正在保存…" : "保存并应用"}</button>
+              <button className="btn" disabled={saving} onClick={() => void save()}>{saving ? tr("settingsSaving") : tr("settingsSave")}</button>
             </footer>
           </>
         )}
@@ -137,12 +147,21 @@ function fromDraft(kind: SettingsKind, value: string): unknown {
   return value;
 }
 
-function editor(field: SettingsField, value: string, onChange: (value: string) => void) {
+function editor(field: SettingsField, value: string, onChange: (value: string) => void, tr: (key: string) => string) {
+  if (field.key === "genvn.language") {
+    const current = parseLang(value);
+    return (
+      <div className="language-switch">
+        <button type="button" className={current === "zh" ? "on" : ""} aria-pressed={current === "zh"} onClick={() => onChange("zh")}>中文</button>
+        <button type="button" className={current === "en" ? "on" : ""} aria-pressed={current === "en"} onClick={() => onChange("en")}>English</button>
+      </div>
+    );
+  }
   if (field.kind === "BOOLEAN") {
     return (
       <button type="button" className={`settings-toggle ${value === "true" ? "on" : ""}`}
         onClick={() => onChange(value === "true" ? "false" : "true")}>
-        {value === "true" ? "开" : "关"}
+        {value === "true" ? tr("settingsOn") : tr("settingsOff")}
       </button>
     );
   }
@@ -153,7 +172,7 @@ function editor(field: SettingsField, value: string, onChange: (value: string) =
     <input
       type={field.kind === "SECRET" ? "password" : field.kind === "INTEGER" || field.kind === "NUMBER" ? "number" : "text"}
       value={value}
-      placeholder={field.kind === "SECRET" ? (field.secretSet ? "已保存，留空并保存则清除" : "未设置") : undefined}
+      placeholder={field.kind === "SECRET" ? (field.secretSet ? tr("settingsSecretSet") : tr("settingsSecretEmpty")) : undefined}
       onChange={(event) => onChange(event.target.value)}
     />
   );

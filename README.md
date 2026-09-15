@@ -71,6 +71,7 @@ server:
 genvn:
   access-key: "a-long-random-string"      # the browser asks for this once, then sends it on every call
   allowed-origins: ["https://vn.example.com"]   # the front end's origin (no path); loopback is always allowed
+  language: zh                            # zh Simplified Chinese or en; UI chrome and model prose
 ```
 
 Generate a key with `openssl rand -base64 32`. Put a reverse proxy in front for TLS and forward
@@ -105,14 +106,15 @@ The key is transported in the clear over plain HTTP, so only ever expose the bac
 ## Fastest demo (60 seconds)
 
 1. Open http://localhost:5180 — the old-house story and the character **Alex** are pre-filled.
-2. Click **让故事开始**. Chinese logs and a progress bar follow the actual compilation stages,
-   from the world and story framework to the opening scene. Click **步入故事** when it is ready.
+   Switch **中文 / English** on the masthead if you want the UI and later AI prose in English.
+2. Click **让故事开始** / **Begin the story**. Logs and a progress bar follow the actual compilation stages,
+   from the world and story framework to the opening scene. Click **步入故事** / **Enter the story** when it is ready.
 3. Text appears character by character. Click the text box (or press **Space**) to reveal the whole
    line; the next click advances. Choices appear after the final line finishes typing.
 4. Pick a choice with a **🎲 badge** — the *server* rolls a d20, adds your stat, compares to the DC,
    and shows you the arithmetic. A failure never dead-ends; it costs you something and moves on.
-5. Open **幕后准备** to see parallel story and picture tasks in a Chinese dialog. Candidate prose
-   stays hidden; **调试详情** opens the developer inspector when needed.
+5. Open **幕后准备** / **Behind the scenes** to see parallel story and picture tasks. Candidate prose
+   stays hidden; **调试详情** / **Debug details** opens the developer inspector when needed.
 6. Open **我的角色** for the character sheet, inventory, relations and the continuity ledger.
    Characters present in the scene have fixed cards at the upper left; the active character's
    transparent sprite stands above the dialogue box. The old remaining-line counter is hidden.
@@ -121,6 +123,25 @@ Saves live in `backend/data/sessions/<id>/` (session.json plus a scene tree). Th
 the **继续未完的故事** list on the start screen. Open **剧情回顾** and tap **从这里重新选择**
 to return to an earlier scene; that scene's dice stay sealed, so the story changes by picking
 a different choice, not by rolling again.
+
+### 重塑剧情 — rewriting the plot you did not want
+
+Rewinding lets you pick a different choice. **重塑剧情** changes what the story *is*. Press it in
+the stage controls (or **从这里重塑剧情** on any scene in 剧情回顾), write in your own words what
+you want instead, and the engine re-plans the framework around it: the author canon, the story
+bible and every beat still ahead. Where your request contradicts the canon, **the canon is
+rewritten** — your sentence becomes part of the story's law rather than a note bolted onto it. The
+scene you refused is then written again, prose and choices, against the new framework, and
+everything after it follows from the new beats as you play them.
+
+It runs as a background job with a progress bar, because it is two model calls. While it runs the
+save takes no choices.
+
+What it never does: erase what you have already read (the meaning of past scenes may change, the
+events do not), delete a character you have met or a place you have been, re-roll a die you have
+already seen, or keep your instruction anywhere afterwards. The text is sent to the model and
+discarded — the only record is the revised story. The scene you refused stays in the scene tree, so
+**从这里重新选择** on it restores the old framework whole if you change your mind.
 
 ## Configuration
 
@@ -244,8 +265,17 @@ Pictures requested by a newly committed scene are attached to that scene immedia
 queued. A missing base portrait is planned before its pose edit or permanent card. PNG and JPEG work with the
 bundled decoder; an unsupported output format is paused before a model request is sent. If the
 asset manifest cannot be saved, new paid requests pause until storage recovers, preserving the
-attempt budget across restarts. This character-art layout is intended for newly created games;
-existing save and picture migration is outside this change.
+attempt budget across restarts. Opening a save, restoring a visited scene, and committing a scene
+check its required artwork: existing files are reused, missing pictures are queued when image
+generation is enabled, and failed pictures retain the manual retry entry.
+
+Character pictures use an explicit appearance identity derived from character ID, normalized
+visual description and the save's fixed art direction. Name, personality, prose and prompt wording
+do not force a redraw. A rewind selects the matching archived version of each base, card and pose;
+other routes' records and PNGs remain on disk. Publication URLs include an immutable version that
+continues to serve the original bytes, while unversioned URLs alias the current image without
+immutable caching. Older manifests are attributed lazily using base-generation information and
+story snapshots; unverifiable files remain archived and only needed current-scene art is rebuilt.
 
 > A `/chat/completions` endpoint does not imply an `/images/*` endpoint -- check your provider. The
 > adapter has been verified against a local stand-in that speaks the OpenAI Images API (real PNGs,
@@ -285,24 +315,26 @@ The browser never owns game state. It posts a choice and is told what became tru
 
 | Method | Path | |
 | --- | --- | --- |
-| `GET` | `/api/access` | Whether a key is required and whether the `X-Genvn-Key` header sent is right; the one call that needs no key |
-| `GET` | `/api/config` | Which LLM client is live |
+| `GET` | `/api/access` | Whether a key is required, whether the `X-Genvn-Key` header sent is right, and the current UI/generation language (`zh` or `en`); the one call that needs no key |
+| `GET` | `/api/config` | Which LLM client is live, plus `language` |
 | `GET` | `/api/settings` | Live `application.yml` fields (secrets are never returned) |
 | `PUT` | `/api/settings` | Write selected keys; most take effect immediately, bind address/port/data-dir still need a restart |
 | `POST` | `/api/sessions` | Compile a story, build state, return the first scene |
 | `POST` | `/api/session-creations` | Start an asynchronous opening job; optional UUID `Idempotency-Key` prevents duplicate compilation |
-| `GET` | `/api/session-creations/{id}` | Chinese milestone logs, progress, status and the completed session id |
+| `GET` | `/api/session-creations/{id}` | Milestone logs in the configured language, progress, status and the completed session id |
 | `GET` | `/api/sessions` | List local saves |
 | `GET` | `/api/sessions/{id}` | Current story + state + scene |
 | `DELETE` | `/api/sessions/{id}` | Delete a save |
 | `POST` | `/api/sessions/{id}/choices/{choiceId}/roll` | **Reveals the server's die**, cast the moment the scene became current; returns it at once, persisted and idempotent |
 | `POST` | `/api/sessions/{id}/choices/{choiceId}` | Commits the choice (using the die already cast), returns roll + state + next scene |
 | `POST` | `/api/sessions/{id}/nodes/{nodeId}/rewind` | Restore a visited scene as the head. Dice on that scene stay sealed; pick a different choice to change the story |
+| `POST` | `/api/sessions/{id}/nodes/{nodeId}/restructure` | Rewrite the framework and this scene from your own `instruction`; 202 + a job id. Optional UUID `Idempotency-Key` prevents a duplicate rewrite |
+| `GET` | `/api/session-restructures/{jobId}` | Rewrite progress, milestone logs and status. Never echoes the instruction |
 | `GET` | `/api/sessions/{id}/assets` | Picture status: plan, queue, budget, timings. Lock-free; safe to poll |
 | `POST` | `/api/sessions/{id}/assets/{assetId}/retry` | Retry one failed image; deduplicated, budgeted, and persisted |
 | `GET` | `/api/sessions/{id}/history` | Read canon through `throughSceneId` and `throughBlockIndex`; optional `beforeSceneId`/`limit` pagination |
 | `GET` | `/api/sessions/{id}/tasks` | Current scene's speculative task states and parallel slots, without candidate prose |
-| `GET` | `/api/assets/{sessionId}/{assetId}` | The picture bytes, by validated id only, cache-immutable; on a locked server `?t=` carries that save's token |
+| `GET` | `/api/assets/{sessionId}/{assetId}` | Current picture alias; `?v=` selects an immutable publication, including archived art. On a locked server `t=` carries that save's token |
 | `GET` | `/api/sessions/{id}/debug` | Everything the dev inspector shows |
 
 ## Tests
@@ -311,7 +343,7 @@ The browser never owns game state. It posts a choice and is told what became tru
 cd backend && ./gradlew test
 ```
 
-251 backend tests cover branch isolation, dice routing, invalid generation, scene/version conflicts,
+302 backend tests cover branch isolation, dice routing, invalid generation, scene/version conflicts,
 concurrent file persistence, save failure recovery, retained dialogue, late arc continuation, the
 picture pipeline (planning, one-request-per-picture, bounded concurrency, budget, retries, restart
 reuse, forget), image/text overlap, real branch concurrency, the OpenAI Images adapter against a
@@ -320,8 +352,11 @@ includes HTTP/SSE cancellation, delete/commit races, durable image budgets, new-
 binding newly requested pictures to the scene that requested them, plus idle-connection timeouts,
 unreadable manifests, uncapped budgets, retry policy, bounded model-supplied ids, the access
 key gate (refusals with CORS headers, the key-free probe and preflight, per-save picture tokens),
-scene-tree crash recovery, rewind prefetch skip, and live settings reload.
-72 frontend regression tests run with `cd frontend && node --test tests/*.test.mjs`, including
+scene-tree crash recovery, rewind prefetch skip, and live settings reload. Story restructuring is
+covered for the beat splice, kept cast and places, the reused die, the refused take surviving as a
+rewindable sibling, the opening's stored pre-state, every concurrent mutation conflicting, and a
+whole-save scan proving the player's instruction is never persisted.
+83 frontend regression tests run with `cd frontend && node --test tests/*.test.mjs`, including
 bounded choice/compilation recovery, stale-image protection, retries, preload selection, grapheme
 typing, task-dialog behavior, the baked-in backend origin, the key header and the key screen. The backend also verifies transparency, one card per character,
 reference dependencies, true compilation milestones and idempotent concurrent opening requests.
@@ -395,6 +430,6 @@ new person may not copy its appearance under another id (the scene is sent back 
 background call sketches a replacement so `genvn.spare-designs` (default 3) stay on hand.
 
 The opening window reports individual transport, structure, world, cast, beat, state and scene
-validation milestones in Chinese. Its display eases toward reported progress and never fabricates
+validation milestones in the configured language (`genvn.language`: `zh` or `en`). Its display eases toward reported progress and never fabricates
 completion while waiting for a model. Liquid Glass inspired controls, cards and dialogs support
 small screens and reduced motion/transparency preferences.

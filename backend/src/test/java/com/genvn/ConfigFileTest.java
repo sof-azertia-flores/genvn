@@ -56,10 +56,12 @@ class ConfigFileTest {
             "llm.reasoning.arc-continue",
             "llm.reasoning.choice-probabilities",
             "llm.reasoning.spare-designs",
+            "llm.reasoning.story-restructure",
             "genvn.data-dir",
             "genvn.spare-designs",
             "genvn.access-key",
             "genvn.allowed-origins",
+            "genvn.language",
             "genvn.speculation.enabled",
             "genvn.speculation.max-branches",
             "genvn.speculation.threads",
@@ -143,6 +145,7 @@ class ConfigFileTest {
         assertEquals(4, genvn.getSpeculation().getThreads());
         assertTrue(genvn.getContinuation().isEnabled());
         assertEquals(0.6, genvn.getContinuation().getThreshold(), 0.0001);
+        assertEquals("zh", genvn.getLanguage());
     }
 
     @Test
@@ -199,5 +202,6 @@ class ConfigFileTest {
         assertEquals(fromCode.getSpeculation().getThreads(), fromFile.getSpeculation().getThreads());
         assertEquals(fromCode.getContinuation().isEnabled(), fromFile.getContinuation().isEnabled());
         assertEquals(fromCode.getContinuation().getThreshold(), fromFile.getContinuation().getThreshold(), 0.0001);
+        assertEquals(fromCode.getLanguage(), fromFile.getLanguage());
     }
 }

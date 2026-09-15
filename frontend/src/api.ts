@@ -121,6 +121,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ expectedSceneId, expectedStateVersion }),
     }),
+  /**
+   * Rewrite the story from one scene onward. Two model calls, so it answers with a job to poll
+   * rather than a session; the instruction is sent once and kept nowhere.
+   */
+  restructure: (id: string, nodeId: string, instruction: string, expectedSceneId: string,
+                expectedStateVersion: number, requestId?: string, signal?: AbortSignal) =>
+    request<CreationJobView>(`/sessions/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/restructure`, {
+      method: "POST",
+      body: JSON.stringify({ expectedSceneId, expectedStateVersion, instruction }),
+      signal,
+      headers: { "Content-Type": "application/json", ...(requestId ? { "Idempotency-Key": requestId } : {}) },
+    }),
+  restructureJob: (jobId: string, signal?: AbortSignal) =>
+    request<CreationJobView>(`/session-restructures/${encodeURIComponent(jobId)}`, { signal }),
   debug: (id: string) => request<Record<string, unknown>>(`/sessions/${encodeURIComponent(id)}/debug`),
   tasks: (id: string, signal?: AbortSignal) =>
     request<SessionTasksView>(`/sessions/${encodeURIComponent(id)}/tasks`, { signal }),

@@ -111,10 +111,14 @@ public class ArcContinuationService {
             state = session.state.deepCopy(snapshots);
         }
         return LlmRequest.of(LlmPurpose.ARC_CONTINUE,
-                Prompts.ARC_SYSTEM,
+                Prompts.arcSystem(sessionLanguage(session)),
                 Prompts.arcUser(context.renderStoryFoundation(story, state), context.renderGameState(state, story),
                         context.renderPlayedBeats(story)),
-                Map.of("story", story, "state", state));
+                Map.of("story", story, "state", state, "language", sessionLanguage(session)));
+    }
+
+    private String sessionLanguage(GameSession session) {
+        return properties.getLanguage();
     }
 
     /** A continuation is asked for at least this many beats; the prompt asks for 7-10. */

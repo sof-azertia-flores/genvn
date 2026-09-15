@@ -260,6 +260,7 @@ export interface ChoiceView {
 export interface AccessView {
   required: boolean;
   granted: boolean;
+  language?: string;
 }
 
 export interface ConfigView {
@@ -268,6 +269,7 @@ export interface ConfigView {
   speculationEnabled: boolean;
   continuationEnabled: boolean;
   imageEnabled: boolean;
+  language?: string;
 }
 
 export type SettingsKind = "STRING" | "SECRET" | "INTEGER" | "NUMBER" | "BOOLEAN" | "LIST";

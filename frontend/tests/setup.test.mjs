@@ -28,6 +28,7 @@ test("the setup masthead offers a settings entry", async () => {
   await flush();
   const button = nodes(ui.tree, (n) => typeof n.props?.className === "string" && n.props.className.includes("setup-settings"))[0];
   assert.ok(button);
+  assert.ok(nodes(ui.tree, (n) => typeof n.props?.className === "string" && n.props.className.includes("setup-language")).length);
   button.props.onClick();
   assert.equal(opened, true);
   ui.unmount();

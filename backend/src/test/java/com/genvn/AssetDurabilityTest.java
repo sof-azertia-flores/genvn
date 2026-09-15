@@ -166,7 +166,8 @@ class AssetDurabilityTest {
         CountDownLatch saving = new CountDownLatch(1);
         CountDownLatch finishSave = new CountDownLatch(1);
         AssetStore gatedStore = new AssetStore(mapper, dir) {
-            @Override public Stored save(String sid, String assetId, byte[] bytes, String mime) throws IOException {
+            @Override public Stored saveVersioned(String sid, String assetId, String recordVersionId,
+                                                  int generationVersion, byte[] bytes, String mime) throws IOException {
                 saving.countDown();
                 try {
                     if (!finishSave.await(5, TimeUnit.SECONDS)) throw new IOException("save gate timed out");
@@ -174,7 +175,7 @@ class AssetDurabilityTest {
                     Thread.currentThread().interrupt();
                     throw new IOException(e);
                 }
-                return super.save(sid, assetId, bytes, mime);
+                return super.saveVersioned(sid, assetId, recordVersionId, generationVersion, bytes, mime);
             }
         };
         AssetPipeline p = pipeline(new FakeImageProvider(), gatedStore, new ImageProperties());

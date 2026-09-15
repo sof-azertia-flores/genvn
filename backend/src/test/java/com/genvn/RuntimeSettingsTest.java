@@ -30,17 +30,20 @@ class RuntimeSettingsTest {
                 "llm.model", "gpt-4o",
                 "llm.force-mock", true,
                 "genvn.speculation.enabled", false,
+                "genvn.language", "English",
                 "image.enabled", true,
                 "server.port", 9090
         ));
         assertEquals("gpt-4o", llm.getModel());
         assertTrue(llm.isForceMock());
         assertFalse(genvn.getSpeculation().isEnabled());
+        assertEquals("en", genvn.getLanguage());
         assertTrue(image.isEnabled());
         assertTrue(view.restartPending().contains("server.port"));
         String yaml = Files.readString(file);
         assertTrue(yaml.contains("model: gpt-4o"));
         assertTrue(yaml.contains("port: 9090"));
+        assertTrue(yaml.contains("language: en"));
         assertFalse(yaml.contains("sk-"));
         for (RuntimeSettings.Field field : settings.snapshot().fields()) {
             if (field.kind() == RuntimeSettings.Kind.SECRET) {

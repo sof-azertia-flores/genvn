@@ -5,6 +5,7 @@ import com.genvn.api.NotFoundException;
 import com.genvn.api.ChoiceResolvingException;
 import com.genvn.asset.AssetCoordinator;
 import com.genvn.api.PendingRollException;
+import com.genvn.api.RestructureInProgressException;
 import com.genvn.api.SceneConflictException;
 import com.genvn.api.SessionNotFoundException;
 import com.genvn.dice.CheckResolver;
@@ -22,6 +23,7 @@ import com.genvn.speculation.SpeculativeGenerator;
 import com.genvn.story.ArcContinuationService;
 import com.genvn.story.CompiledStory;
 import com.genvn.story.StoryCompiler;
+import com.genvn.story.StoryRestructurePlanner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -60,6 +62,19 @@ public class SessionService {
     private final AssetCoordinator assets;
     private final com.genvn.story.SpareDesignService spareDesigns;
     private final SceneTreeStore tree;
+    /** Null when nothing wired one: restructuring is then simply unavailable. */
+    private final StoryRestructurePlanner restructurePlanner;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.genvn.config.GenvnProperties genvnProperties;
+
+    private String language() {
+        return genvnProperties == null ? com.genvn.config.UiLanguage.ZH : genvnProperties.getLanguage();
+    }
+
+    private void note(CreationProgress progress, int value, String zhStage, String enStage, String zh, String en) {
+        progress.report(com.genvn.config.UiLanguage.text(language(), zhStage, enStage), value,
+                com.genvn.config.UiLanguage.text(language(), zh, en));
+    }
 
     /** Wiring without a picture pipeline: every asset hook is a no-op. */
     public SessionService(StoryCompiler compiler, SceneGenerator sceneGenerator, StateReducer reducer,
@@ -86,15 +101,27 @@ public class SessionService {
                 assets, spareDesigns, null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     public SessionService(StoryCompiler compiler, SceneGenerator sceneGenerator, StateReducer reducer,
                           CheckResolver checkResolver, BranchCache branchCache,
                           SpeculativeGenerator speculative, ArcContinuationService arcs,
                           GameSessionRepository repository, ObjectMapper mapper, AssetCoordinator assets,
                           com.genvn.story.SpareDesignService spareDesigns,
                           com.genvn.persistence.SceneTreeStore tree) {
+        this(compiler, sceneGenerator, reducer, checkResolver, branchCache, speculative, arcs, repository, mapper,
+                assets, spareDesigns, tree, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SessionService(StoryCompiler compiler, SceneGenerator sceneGenerator, StateReducer reducer,
+                          CheckResolver checkResolver, BranchCache branchCache,
+                          SpeculativeGenerator speculative, ArcContinuationService arcs,
+                          GameSessionRepository repository, ObjectMapper mapper, AssetCoordinator assets,
+                          com.genvn.story.SpareDesignService spareDesigns,
+                          com.genvn.persistence.SceneTreeStore tree,
+                          StoryRestructurePlanner restructurePlanner) {
         this.spareDesigns = spareDesigns;
         this.tree = tree;
+        this.restructurePlanner = restructurePlanner;
         this.assets = assets == null ? AssetCoordinator.disabled() : assets;
         this.compiler = compiler;
         this.sceneGenerator = sceneGenerator;
@@ -149,7 +176,9 @@ public class SessionService {
 
     public GameSession create(String outline, PlayerCharacter player, String artStyle, CreationProgress progress) {
         String id = uniqueSessionId(candidate -> repository.find(candidate).isPresent() || assets.hasPictures(candidate));
-        progress.report("开始准备故事", 2, "开局任务已开始，正在读取故事与玩家资料。");
+        note(progress, 2, "开始准备故事", "Starting the story",
+                "开局任务已开始，正在读取故事与玩家资料。",
+                "The opening job has started; reading the story and player notes.");
         StoryCompiler.Compiled compiled = compiler.compile(id, outline, player, artStyle, progress);
 
         GameSession session = new GameSession();
@@ -159,24 +188,46 @@ public class SessionService {
         session.title = compiled.story().spine.arcTitle();
 
         try {
-            progress.report("故事框架已建立", 53, "故事框架和初始状态已就绪，开始安排美术素材。");
+            note(progress, 53, "故事框架已建立", "Story frame ready",
+                    "故事框架和初始状态已就绪，开始安排美术素材。",
+                    "The story frame and opening state are ready; planning pictures next.");
             // Pictures start from the frame while opening prose is still being written.
-            progress.report("规划人物与场景素材", 55, "根据故事框架安排素材，符合生成设置和预算的图片将进入后台队列。");
+            note(progress, 55, "规划人物与场景素材", "Planning people and places",
+                    "根据故事框架安排素材，符合生成设置和预算的图片将进入后台队列。",
+                    "Pictures that fit the settings and budget will join the background queue.");
             assets.planForSession(session);
-            progress.report("美术任务已安排", 58, "素材规划阶段已结束；图片由后台队列独立处理。");
-            progress.report("编写开场正文", 60, "已准备开场地点、角色与可用素材，开始编写对白和选项。");
+            note(progress, 58, "美术任务已安排", "Picture jobs queued",
+                    "素材规划阶段已结束；图片由后台队列独立处理。",
+                    "Picture planning is done; the background queue handles images on its own.");
+            note(progress, 60, "编写开场正文", "Writing the opening",
+                    "已准备开场地点、角色与可用素材，开始编写对白和选项。",
+                    "Opening place, people and available art are ready; writing dialogue and choices.");
             SceneBundle opening = sceneGenerator.generate(new SceneRequest(
-                    session.story, session.state, null, SceneRequest.NONE, null, 0, false), CreationMilestones.model(progress, true));
-            progress.report("整理开场场景", 88, "开场对白、选项和人物位置已整理，准备写入游戏状态。");
+                    session.story, session.state, null, SceneRequest.NONE, null, 0, false),
+                    CreationMilestones.model(progress, true, language()));
+            note(progress, 88, "整理开场场景", "Assembling the opening scene",
+                    "开场对白、选项和人物位置已整理，准备写入游戏状态。",
+                    "Opening dialogue, choices and positions are assembled; writing them into game state.");
             commitScene(session, opening, null, null, Map.of());
-            progress.report("绑定开场状态与素材", 91, "开场已写入剧情历史，人物、地点和素材引用已绑定。");
+            note(progress, 91, "绑定开场状态与素材", "Binding opening state and art",
+                    "开场已写入剧情历史，人物、地点和素材引用已绑定。",
+                    "The opening is in story history; people, places and art references are bound.");
             persistSession(session);
-            progress.report("本地保存阶段完成", 94, session.saveHealthy ? "开场故事已保存到本地。" : "开场已建立，但本地写入未成功；进入故事后请留意存档提示。");
-            progress.report("准备后续分支", 97, "正在按设置启动后续选项的预推演。图片无需全部完成即可进入故事。");
+            note(progress, 94, "本地保存阶段完成", "Local save finished",
+                    session.saveHealthy ? "开场故事已保存到本地。" : "开场已建立，但本地写入未成功；进入故事后请留意存档提示。",
+                    session.saveHealthy ? "The opening story is saved locally."
+                            : "The opening exists, but the local write did not succeed; watch the save notice after you enter.");
+            note(progress, 97, "准备后续分支", "Preparing later branches",
+                    "正在按设置启动后续选项的预推演。图片无需全部完成即可进入故事。",
+                    "Prefetch of later choices is starting. You can enter before every picture is ready.");
             speculative.prefetch(session);
-            progress.report("等待进入故事", 99, session.saveHealthy
-                    ? "故事已保存，可以开始游玩。尚未完成的图片和后续分支会继续在后台准备。"
-                    : "故事已就绪，但存档暂未写入磁盘；进入后请留意存档提示。");
+            note(progress, 99, "等待进入故事", "Ready to enter",
+                    session.saveHealthy
+                            ? "故事已保存，可以开始游玩。尚未完成的图片和后续分支会继续在后台准备。"
+                            : "故事已就绪，但存档暂未写入磁盘；进入后请留意存档提示。",
+                    session.saveHealthy
+                            ? "The story is saved and ready to play. Unfinished pictures and later branches keep preparing."
+                            : "The story is ready, but the save is not on disk yet; watch the save notice after you enter.");
             log.info("Created session {} ('{}') with {} beats", id, session.title, session.story.spine.beats().size());
             return session;
         } catch (RuntimeException | Error failure) {
@@ -236,6 +287,7 @@ public class SessionService {
             if (!Objects.equals(expectedSceneId, current.sceneId()) || expectedStateVersion != session.state.stateVersion) {
                 throw new SceneConflictException("This scene has already changed. Reload it and choose again.");
             }
+            if (session.restructuringJobId != null) throw new RestructureInProgressException();
             Choice choice = current.choice(choiceId);
             if (choice == null) {
                 throw new SceneConflictException("This choice is no longer offered. Reload the current scene.");
@@ -311,6 +363,7 @@ public class SessionService {
             if (!Objects.equals(expectedSceneId, current.sceneId()) || expectedStateVersion != session.state.stateVersion) {
                 throw new SceneConflictException("This scene has already changed. Reload it and choose again.");
             }
+            if (session.restructuringJobId != null) throw new RestructureInProgressException();
             if (session.resolvingChoiceId != null) {
                 throw new ChoiceResolvingException(session.resolvingChoiceId);
             }
@@ -480,6 +533,8 @@ public class SessionService {
         GameState state = session.state;
         int versionBeforeCommit = state.stateVersion;
         String parentNodeId = session.currentNodeId;
+        // The opening's "before" state exists only here; see SceneNode.preState.
+        GameState preState = parentNodeId == null ? state.deepCopy(mapper) : null;
 
         SceneStateProjector.register(session.story, state, scene);
         scene = assets.prepareSceneAssets(session, scene);
@@ -502,7 +557,7 @@ public class SessionService {
         session.finished = session.currentScene.choices().isEmpty();
         // Location, text and scene counters also change when the model proposes no delta.
         state.stateVersion = Math.max(state.stateVersion, versionBeforeCommit + 1);
-        persistCommittedNode(session, parentNodeId, session.currentScene, choice, roll, outcomeOf(roll));
+        persistCommittedNode(session, parentNodeId, session.currentScene, choice, roll, outcomeOf(roll), preState);
         entry.sceneId = session.currentScene.sceneId();
 
         log.info("Session {}: committed {} -- state v{}, beat {}, {} op(s) applied, {} rejected, hp {}/{}, {} item(s)",
@@ -545,7 +600,9 @@ public class SessionService {
         if (scene.choices().isEmpty()) {
             session.currentScene = new SceneBundle(scene.sceneId(), scene.beatId(), scene.location(),
                     scene.characters(), scene.blocks(),
-                    List.of(new Choice("continue_arc", "继续下一章 / Continue the story", "action", null, null)),
+                    List.of(new Choice("continue_arc",
+                            com.genvn.config.UiLanguage.text(language(), "继续下一章", "Continue the story"),
+                            "action", null, null)),
                     scene.proposedStateDelta(), scene.storyProgressNote(), scene.assetRequests(), scene.newNpcs(), scene.meta());
         }
         session.finished = false;
@@ -609,7 +666,7 @@ public class SessionService {
      * {@code stateVersion} still moves forward so a page that is still on the later scene 409s.
      */
     public GameSession rewind(String sessionId, String nodeId, String expectedSceneId, int expectedStateVersion) {
-        GameSession session = require(sessionId);
+        GameSession session = require(sessionId, false);
         synchronized (session) {
             if (session.deleted) throw new SessionNotFoundException("This session has been deleted.");
             if (session.currentScene == null) throw new NotFoundException("Session " + sessionId + " has no current scene");
@@ -617,6 +674,7 @@ public class SessionService {
                     || expectedStateVersion != session.state.stateVersion) {
                 throw new SceneConflictException("This scene has already changed. Reload it and choose again.");
             }
+            if (session.restructuringJobId != null) throw new RestructureInProgressException();
             if (session.resolvingChoiceId != null) {
                 throw new ChoiceResolvingException(session.resolvingChoiceId);
             }
@@ -636,6 +694,218 @@ public class SessionService {
             speculative.prefetch(session);
             log.info("Session {}: rewound to {} (state v{})", sessionId, nodeId, session.state.stateVersion);
             return copySession(session);
+        }
+    }
+
+    /**
+     * Rewrite the story from one scene onward, in the player's own words.
+     *
+     * A rewind changes which path is current; this changes what the story IS. The framework --
+     * author canon, bible, and every beat still ahead -- is re-planned around the player's
+     * request (their request wins over canon, which is the whole point), the scene they rejected
+     * is written again against the revised framework, and everything after it follows from the
+     * new beats as they play. Completed beats, the people they have met and the places they have
+     * been are kept: those already happened.
+     *
+     * Same three phases as {@link #choose}: the monitor is never held across a model call, and
+     * {@code restructuringJobId} makes every other mutation conflict while the story underneath
+     * them is being rewritten.
+     *
+     * The instruction reaches the two model calls and nothing else -- it is never written to the
+     * save, the tree, or any log.
+     */
+    public GameSession restructure(String sessionId, String nodeId, String instruction,
+                                   String expectedSceneId, int expectedStateVersion,
+                                   String jobId, CreationProgress progress) {
+        String clean = StoryRestructurePlanner.sanitize(instruction);
+        if (clean.isBlank()) throw new IllegalArgumentException("请写下你希望这段剧情怎么改。");
+        GameSession session = require(sessionId, false);
+
+        final SceneNode target;
+        final SceneNode parent;
+        final GameState baseState;
+        final CompiledStory storySnapshot;
+        final Choice choice;
+        final CheckResult roll;
+        final String outcome;
+        final int sceneIndex;
+        final String baseSceneId;
+        final int baseVersion;
+        synchronized (session) {
+            if (session.deleted) throw new SessionNotFoundException("This session has been deleted.");
+            if (session.currentScene == null) throw new NotFoundException("Session " + sessionId + " has no current scene");
+            if (!Objects.equals(expectedSceneId, session.currentScene.sceneId())
+                    || expectedStateVersion != session.state.stateVersion) {
+                throw new SceneConflictException("This scene has already changed. Reload it and try again.");
+            }
+            if (session.restructuringJobId != null) throw new RestructureInProgressException();
+            if (session.resolvingChoiceId != null) throw new ChoiceResolvingException(session.resolvingChoiceId);
+            if (tree == null || restructurePlanner == null) {
+                throw new IllegalArgumentException("这个存档无法重塑剧情：场景树不可用。");
+            }
+
+            target = tree.readNode(sessionId, nodeId)
+                    .orElseThrow(() -> new NotFoundException("没有可以重塑的这一幕"));
+            if (!target.restorable()) {
+                throw new IllegalArgumentException("这一幕还没有成为走过的情节，不能从这里重塑。");
+            }
+
+            if (target.parentNodeId == null) {
+                // The opening. Its "before" state is the only one the tree stores explicitly.
+                parent = null;
+                if (target.preState == null) {
+                    throw new IllegalArgumentException(
+                            "这个存档是更早的版本建立的，没有保存开场之前的状态，开场无法重塑；可以从后面任意一幕重塑。");
+                }
+                baseState = target.preState.deepCopy(mapper);
+                choice = null;
+                roll = null;
+                outcome = SceneRequest.NONE;
+            } else {
+                parent = tree.readNode(sessionId, target.parentNodeId).orElse(null);
+                if (parent == null || !parent.restorable() || parent.scene == null) {
+                    throw new IllegalArgumentException("这一幕之前的情节已经读不到了，无法从这里重塑。");
+                }
+                Choice source = parent.scene.choice(target.fromChoiceId);
+                if (source == null) {
+                    throw new IllegalArgumentException("这一幕之前的选项已经不存在了，无法从这里重塑。");
+                }
+                baseState = parent.state.deepCopy(mapper);
+                choice = source;
+                // The die the player already saw stays binding: a rewrite changes what happens,
+                // never whether they succeeded.
+                roll = target.roll;
+                outcome = target.outcome == null ? outcomeOf(target.roll) : target.outcome;
+            }
+            storySnapshot = storyAt(sessionId, parent == null ? target : parent, session.story);
+            sceneIndex = session.sceneCounter;
+            baseSceneId = session.currentScene.sceneId();
+            baseVersion = session.state.stateVersion;
+            session.restructuringJobId = jobId;
+        }
+
+        final CompiledStory revisedStory;
+        final String newBeatId;
+        final List<String> newThreads;
+        final SceneBundle newScene;
+        try {
+            var plan = restructurePlanner.plan(storySnapshot, baseState, clean,
+                    CreationMilestones.model(progress, 10, 55, "故事框架", "story frame", language()));
+            revisedStory = restructurePlanner.apply(storySnapshot, baseState, plan);
+            newBeatId = StoryRestructurePlanner.firstNewBeatId(plan);
+            newThreads = plan.newThreads();
+
+            // The scene is written as if the revised framework had always been the plan: the beat
+            // it belongs to is the first of the new ones, and it is that beat's first scene.
+            GameState writingState = baseState.deepCopy(mapper);
+            writingState.currentBeatId = newBeatId;
+            writingState.scenesInCurrentBeat = 0;
+            writingState.currentArcTitle = revisedStory.spine.arcTitle();
+            newScene = sceneGenerator.generate(
+                    new SceneRequest(revisedStory, writingState, choice, outcome, roll, sceneIndex, false),
+                    CreationMilestones.model(progress, 60, 92, "重写的这一幕", "rewritten scene", language()),
+                    clean);
+        } catch (RuntimeException | Error e) {
+            synchronized (session) {
+                session.restructuringJobId = null;
+                if (session.deleted) throw new SessionNotFoundException("This session has been deleted.");
+            }
+            throw e;
+        }
+
+        synchronized (session) {
+            try {
+                if (session.deleted) throw new SessionNotFoundException("This session has been deleted.");
+                if (session.currentScene == null || !baseSceneId.equals(session.currentScene.sceneId())
+                        || session.state.stateVersion != baseVersion) {
+                    throw new SceneConflictException(
+                            "This save changed while the story was being rewritten. Reload and try again.");
+                }
+
+                // Back to the moment before the rejected scene. This is also what erases it from
+                // the model's memory: recentScenes and recentEvents come back as they were.
+                if (parent != null) {
+                    restoreNode(session, parent);
+                } else {
+                    restoreBeforeOpening(session, target);
+                }
+                // AFTER the restore: restoreNode reloads the story from the node's hash.
+                session.story = revisedStory;
+                adoptRevisedFramework(session, newBeatId, newThreads);
+
+                // Every prefetched branch and every next-arc plan belongs to a story that no
+                // longer exists.
+                session.pendingArc = null;
+                branchCache.discardAll(sessionId);
+                speculative.cancelSession(sessionId);
+                assets.planForSession(session);
+
+                commitScene(session, newScene, choice, roll, Map.of());
+                session.pendingRoll = null;
+                persistSession(session);
+                speculative.prefetch(session);
+                log.info("Session {}: restructured from {} -- new head {} on beat {} ({} beats ahead, state v{})",
+                        sessionId, nodeId, session.currentScene.sceneId(), newBeatId,
+                        session.story.spine.beats().size(), session.state.stateVersion);
+                return copySession(session);
+            } finally {
+                session.restructuringJobId = null;
+            }
+        }
+    }
+
+    /** The compiled story as of one node, falling back to the live one when the blob is gone. */
+    private CompiledStory storyAt(String sessionId, SceneNode node, CompiledStory fallback) {
+        if (tree != null && node != null && node.storyHash != null) {
+            var stored = tree.readStory(sessionId, node.storyHash);
+            if (stored.isPresent()) return stored.get();
+        }
+        return mapper.convertValue(fallback, CompiledStory.class);
+    }
+
+    /**
+     * The one restore with no node to land on: back to before the opening was ever written.
+     * Mirrors {@link #restoreNode} minus the scene, which is about to be generated.
+     */
+    private void restoreBeforeOpening(GameSession session, SceneNode root) {
+        GameState restored = root.preState.deepCopy(mapper);
+        restored.stateVersion = Math.max(session.state.stateVersion, restored.stateVersion) + 1;
+        session.state = restored;
+        session.currentScene = null;
+        session.sceneDice = new LinkedHashMap<>();
+        session.currentNodeId = null;
+        session.pendingRoll = null;
+        session.pendingArc = null;
+        session.continuationEpoch++;
+        session.continuationPending = false;
+        session.finished = false;
+        session.history = new ArrayList<>();
+    }
+
+    /**
+     * Point the state at the revised spine. The completed beats are still in it by construction,
+     * so {@code completedBeats} keeps resolving; the scene about to commit opens the first of the
+     * beats that are new.
+     */
+    private void adoptRevisedFramework(GameSession session, String newBeatId, List<String> newThreads) {
+        GameState state = session.state;
+        CompiledStory story = session.story;
+        state.currentBeatId = newBeatId;
+        state.scenesInCurrentBeat = 0;
+        state.currentArcTitle = story.spine.arcTitle();
+        state.storyProgress.totalBeats = story.spine.beats().size();
+        state.storyProgress.beatsCompleted = state.completedBeats.size();
+        state.storyProgress.recompute();
+        state.addRecentEvent("The story was rewritten from here: " + story.spine.arcTitle());
+
+        // Questions the revision opened. Ids continue the ledger's own sequence.
+        int next = state.continuityLedger.size() + 1;
+        int added = 0;
+        for (String thread : newThreads) {
+            if (thread == null || thread.isBlank() || added >= 3) continue;
+            state.continuityLedger.add(new ContinuityEntry(
+                    String.format("P%03d", next++), thread.trim(), state.currentSceneId));
+            added++;
         }
     }
 
@@ -677,7 +947,7 @@ public class SessionService {
     }
 
     private void persistCommittedNode(GameSession session, String parentNodeId, SceneBundle scene,
-                                      Choice choice, CheckResult roll, String outcome) {
+                                      Choice choice, CheckResult roll, String outcome, GameState preState) {
         scene = uniqueVisitedScene(session, scene);
         session.currentScene = scene;
         session.currentNodeId = scene.sceneId();
@@ -693,6 +963,9 @@ public class SessionService {
                     choice == null ? null : choice.text(),
                     roll, outcome, session.state.deepCopy(mapper), session.sceneDice, storyHash);
             node.pendingArc = session.pendingArc;
+            // Only the root: every other node rewrites itself from its parent's state, but the
+            // opening has no parent, so without this it could never be rewritten.
+            if (parentNodeId == null) node.preState = preState;
             tree.writeNode(session.id, node);
         } catch (RuntimeException e) {
             session.saveHealthy = false;
@@ -740,7 +1013,20 @@ public class SessionService {
         session.continuationPending = false;
         session.finished = node.scene == null || node.scene.choices().isEmpty();
         session.history = historyAlong(session.id, node);
-        assets.reconcileAfterRestore(session);
+        assets.reconcileAfterRestore(session, () -> historicalStories(session.id));
+    }
+
+    /** Only consulted for unattributed legacy pictures in the save the player has opened. */
+    private List<CompiledStory> historicalStories(String sessionId) {
+        if (tree == null) return List.of();
+        Set<String> hashes = new HashSet<>();
+        List<CompiledStory> stories = new ArrayList<>();
+        for (SceneNode node : tree.listNodes(sessionId)) {
+            if (node.storyHash != null && hashes.add(node.storyHash)) {
+                tree.readStory(sessionId, node.storyHash).ifPresent(stories::add);
+            }
+        }
+        return stories;
     }
 
     private List<GameSession.HistoryEntry> historyAlong(String sessionId, SceneNode leaf) {
@@ -794,7 +1080,7 @@ public class SessionService {
                 return true;
             }
         }
-        persistCommittedNode(session, null, session.currentScene, null, null, SceneRequest.NONE);
+        persistCommittedNode(session, null, session.currentScene, null, null, SceneRequest.NONE, null);
         return true;
     }
 
@@ -802,7 +1088,7 @@ public class SessionService {
     private boolean retryMissingCurrentNode(GameSession session) {
         if (tree == null || session.currentNodeId == null) return false;
         if (tree.readNode(session.id, session.currentNodeId).isPresent()) return false;
-        persistCommittedNode(session, null, session.currentScene, null, null, SceneRequest.NONE);
+        persistCommittedNode(session, null, session.currentScene, null, null, SceneRequest.NONE, null);
         return true;
     }
 
@@ -855,7 +1141,7 @@ public class SessionService {
      * its dice is left alone.
      */
     public boolean migrateSave(String id) {
-        GameSession session = require(id);
+        GameSession session = require(id, false);
         synchronized (session) {
             boolean diceReady = session.sceneDice != null && !session.sceneDice.isEmpty()
                     || session.currentScene == null || session.currentScene.choices().stream().noneMatch(Choice::hasCheck);
@@ -866,6 +1152,10 @@ public class SessionService {
     // ------------------------------------------------------------------ lookups
 
     public GameSession require(String id) {
+        return require(id, true);
+    }
+
+    private GameSession require(String id, boolean ensurePictures) {
         GameSession session = repository.find(id)
                 .orElseThrow(() -> new SessionNotFoundException("No session with id '" + id + "'"));
         synchronized (session) {
@@ -880,6 +1170,7 @@ public class SessionService {
                 persistSession(session);
                 log.info("Session {}: brought an older save up to the current scene-tree format", id);
             }
+            if (ensurePictures) assets.ensureCurrentSceneAssets(session, () -> historicalStories(session.id));
         }
         return session;
     }

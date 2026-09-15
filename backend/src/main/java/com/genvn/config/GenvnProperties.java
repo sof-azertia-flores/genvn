@@ -70,10 +70,18 @@ public class GenvnProperties {
     public void setSpareDesigns(int spareDesigns) { this.spareDesigns = spareDesigns; }
     public String getAccessKey() { return accessKey; }
     public void setAccessKey(String accessKey) { this.accessKey = accessKey == null ? "" : accessKey; }
+    /**
+     * UI and model-output language: {@code zh} (default) or {@code en}. Changing it relabels the
+     * front end and tells every prompt to write player-visible prose in that language.
+     */
+    private String language = UiLanguage.ZH;
+
     public List<String> getAllowedOrigins() { return allowedOrigins; }
     public void setAllowedOrigins(List<String> allowedOrigins) {
         this.allowedOrigins = allowedOrigins == null ? new ArrayList<>() : new ArrayList<>(allowedOrigins);
     }
+    public String getLanguage() { return UiLanguage.normalize(language); }
+    public void setLanguage(String language) { this.language = UiLanguage.normalize(language); }
     public Speculation getSpeculation() { return speculation; }
     public Continuation getContinuation() { return continuation; }
 }

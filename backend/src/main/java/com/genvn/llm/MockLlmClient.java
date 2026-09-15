@@ -43,6 +43,7 @@ public class MockLlmClient implements LlmClient {
             case ARC_CONTINUE -> arc(request);
             case CHOICE_PROBABILITIES -> MockChoiceProbabilities.generate(mapper, request);
             case SPARE_DESIGNS -> spareDesigns(request);
+            case STORY_RESTRUCTURE -> restructure(request);
         };
         // A little latency so the speculative-prefetch machinery is observable in the inspector.
         sleep(180 + (Math.abs(json.hashCode()) % 220));
@@ -64,7 +65,7 @@ public class MockLlmClient implements LlmClient {
     private String compile(LlmRequest request) {
         String outline = str(request.mockContext().get("outline"));
         String playerName = str(request.mockContext().get("playerName"));
-        boolean zh = isChinese(outline);
+        boolean zh = zh(request, outline);
         Setting setting = detectSetting(outline);
         String place = zh ? setting.zh() : setting.en();
         String object = detectObject(outline, zh);
@@ -200,7 +201,7 @@ public class MockLlmClient implements LlmClient {
         int sceneIndex = (int) request.mockContext().getOrDefault("sceneIndex", 0);
 
         String outline = story.authorCanon.originalOutline();
-        boolean zh = isChinese(outline);
+        boolean zh = zh(request, outline);
         Setting setting = detectSetting(outline);
         String place = zh ? setting.zh() : setting.en();
         String object = detectObject(outline, zh);
@@ -248,7 +249,7 @@ public class MockLlmClient implements LlmClient {
     @SuppressWarnings("unchecked")
     private String spareDesigns(LlmRequest request) {
         CompiledStory story = (CompiledStory) request.mockContext().get("story");
-        boolean zh = story != null && isChinese(story.authorCanon.originalOutline());
+        boolean zh = zh(request, story != null ? story.authorCanon.originalOutline() : "");
         int count = request.mockContext().get("count") instanceof Integer n ? n : 1;
         List<String> taken = request.mockContext().get("takenIds") instanceof List<?> l ? (List<String>) l : List.of();
         String[] looks = zh
@@ -281,7 +282,7 @@ public class MockLlmClient implements LlmClient {
     private String arc(LlmRequest request) {
         CompiledStory story = (CompiledStory) request.mockContext().get("story");
         GameState state = (GameState) request.mockContext().get("state");
-        boolean zh = isChinese(story.authorCanon.originalOutline());
+        boolean zh = zh(request, story.authorCanon.originalOutline());
         Setting setting = detectSetting(story.authorCanon.originalOutline());
         String place = zh ? setting.zh() : setting.en();
         String absent = detectAbsentName(story.authorCanon.originalOutline(), zh);
@@ -327,6 +328,95 @@ public class MockLlmClient implements LlmClient {
         ArrayNode neu = root.putArray("optionalNewThreads");
         neu.add(zh ? "第二个地址上住着谁？" : "Who lives at the second address?");
         return root.toString();
+    }
+
+    // ------------------------------------------------------------------ story restructure
+
+    /**
+     * Offline restructure. The bible is carried over verbatim -- which is exactly what keeps every
+     * established person and place in it -- with the player's request folded into the premise and
+     * the canon, and a fresh tail of beats whose ids cannot collide with a completed one.
+     */
+    private String restructure(LlmRequest request) {
+        CompiledStory story = (CompiledStory) request.mockContext().get("story");
+        GameState state = (GameState) request.mockContext().get("state");
+        boolean zh = zh(request, story.authorCanon.originalOutline());
+        Setting setting = detectSetting(story.authorCanon.originalOutline());
+        String place = zh ? setting.zh() : setting.en();
+        // The mock never repeats the player's own words. A real model is asked to REWRITE the
+        // canon in its own terms, not to transcribe the request into it, and a mock that pasted
+        // the raw text through would quietly turn a revision into a stored note.
+        String wish = zh ? "作者要求的改动" : "the change the author asked for";
+
+        ObjectNode root = mapper.createObjectNode();
+
+        ArrayNode facts = root.putArray("authorCanonFacts");
+        for (String fact : story.authorCanon.facts()) facts.add(fact);
+        facts.add(zh ? "作者改写了后续走向：" + wish : "The author rewrote what happens next: " + wish);
+
+        // Carrying the bible over wholesale is what a real model is asked to do too; it is the
+        // only way every id the play-through already depends on survives.
+        ObjectNode bible = mapper.valueToTree(story.bible);
+        bible.put("premise", (zh ? "（已重塑）" : "(rewritten) ") + bible.path("premise").asText(""));
+        ArrayNode hard = bible.withArray("hardCanon");
+        hard.add(zh ? "后续剧情必须体现：" + wish : "What follows must reflect: " + wish);
+        root.set("bible", bible);
+
+        ObjectNode spine = root.putObject("spine");
+        spine.put("arcTitle", zh ? "改道：" + story.spine.arcTitle() : "Rerouted: " + story.spine.arcTitle());
+        ArrayNode beats = spine.putArray("beats");
+        String prefix = freeBeatPrefix(story, state);
+        String[][] rows = zh
+                ? new String[][]{
+                    {"turn", "转向", "玩家的要求开始改变眼前的局面，旧的计划不再成立。", "旧计划被正式放弃。", "故事不再走原来的方向。"},
+                    {"cost", "代价", "改道有人要承担后果，而且不是玩家。", "有人因此失去了什么。", "改变不是免费的。"},
+                    {"push", "反扑", "反对的一方按新的局面重新动手，比之前更近。", "对方逼到玩家面前。", "对手已经知道玩家要做什么。"},
+                    {"loss", "在" + place + "失手", "玩家押上了一样东西，然后输掉它。", "玩家失去手里的筹码。", "玩家只剩下一次机会。"},
+                    {"decide", "由玩家决定", "新的走向收束到玩家必须亲手做的一个决定上。", "玩家做出决定并承担它。", "结局由玩家而不是命运定下。"}}
+                : new String[][]{
+                    {"turn", "The turn", "The player's demand starts reshaping the situation; the old plan no longer holds.", "The old plan is formally abandoned.", "The story no longer runs the way it did."},
+                    {"cost", "The cost", "Someone carries the consequence of the change, and it is not the player.", "Someone loses something for it.", "The change was not free."},
+                    {"push", "The push back", "The opposition moves again on the new terms, and closer.", "They reach the player directly.", "The opposition knows what the player intends."},
+                    {"loss", "Losing it at " + place, "The player stakes something and loses it.", "The player loses their leverage.", "The player has one attempt left."},
+                    {"decide", "The player decides", "The new direction narrows to one decision only the player can make.", "The player decides and carries it.", "The ending is settled by the player, not by fate."}};
+        for (String[] row : rows) {
+            ObjectNode b = beats.addObject();
+            b.put("id", prefix + row[0]);
+            b.put("title", row[1]);
+            b.put("purpose", row[2]);
+            b.put("completionConditions", row[3]);
+            b.put("turn", row[4]);
+            b.put("importance", "critical");
+        }
+
+        ArrayNode threads = root.putArray("newThreads");
+        threads.add(zh ? "玩家提出的改动会让谁付出代价？" : "Who pays for the change the player asked for?");
+        root.put("changeSummary", zh
+                ? "已按你的要求改写后续走向：" + wish
+                : "The story ahead was rewritten as you asked: " + wish);
+        return root.toString();
+    }
+
+    /** A beat-id prefix no existing or completed beat uses, so repeated rewrites never collide. */
+    private static String freeBeatPrefix(CompiledStory story, GameState state) {
+        java.util.Set<String> taken = new java.util.HashSet<>();
+        for (var beat : story.spine.beats()) taken.add(beat.id());
+        if (state.completedBeats != null) taken.addAll(state.completedBeats);
+        for (var arc : story.laterArcs) {
+            for (var beat : arc.beats()) taken.add(beat.id());
+        }
+        for (int n = 1; n < 1000; n++) {
+            String prefix = "rw" + n + "_";
+            boolean free = taken.stream().noneMatch(id -> id != null && id.startsWith(prefix));
+            if (free) return prefix;
+        }
+        return "rw_";
+    }
+
+    private static boolean zh(LlmRequest request, String fallbackText) {
+        Object lang = request.mockContext().get("language");
+        if (lang instanceof String s && !s.isBlank()) return com.genvn.config.UiLanguage.chinese(s);
+        return isChinese(fallbackText);
     }
 
     private static String str(Object o) {

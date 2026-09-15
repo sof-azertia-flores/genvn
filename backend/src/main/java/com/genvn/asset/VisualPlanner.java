@@ -48,13 +48,14 @@ public class VisualPlanner {
             String beatId = beats.isEmpty() ? null : beats.get(0).id();
             String baseId = AssetSpec.portraitId(PlayerCharacter.ID, AssetSpec.BASE_VARIANT);
             specs.add(new AssetSpec(baseId, AssetKind.PORTRAIT, player.id(), player.name(), AssetSpec.BASE_VARIANT,
-                    portraitPrompt(style, player, "neutral"), styleKey, beatId, -4, null, AssetSpec.GENERAL, false));
+                    portraitPrompt(style, player, "neutral"), styleKey, beatId, -4, null, AssetSpec.GENERAL, false,
+                    AppearanceIdentity.key(player, style)));
             specs.add(characterCard(player, style, styleKey, beatId).withPriority(-3));
             int priority = -2;
             for (String pose : List.of("talking", "action")) {
                 specs.add(new AssetSpec(AssetSpec.portraitId(player.id(), pose), AssetKind.PORTRAIT_VARIANT,
                         player.id(), player.name(), pose, variantPrompt(style, player, pose), styleKey, beatId,
-                        priority++, baseId, AssetSpec.GENERAL, false));
+                        priority++, baseId, AssetSpec.GENERAL, false, AppearanceIdentity.key(player, style)));
             }
         }
 
@@ -83,13 +84,14 @@ public class VisualPlanner {
             String baseId = AssetSpec.portraitId(npc.id(), AssetSpec.BASE_VARIANT);
             String beatId = beats.isEmpty() ? null : beats.get(Math.min(c, beats.size() - 1)).id();
             specs.add(new AssetSpec(baseId, AssetKind.PORTRAIT, npc.id(), npc.name(), AssetSpec.BASE_VARIANT,
-                    portraitPrompt(style, npc, "neutral"), styleKey, beatId, c, null, AssetSpec.GENERAL, false));
+                    portraitPrompt(style, npc, "neutral"), styleKey, beatId, c, null, AssetSpec.GENERAL, false,
+                    AppearanceIdentity.key(npc, style)));
             specs.add(characterCard(npc, style, styleKey, beatId).withPriority(c + 1));
             int v = 0;
             for (String expression : expressions) {
                 specs.add(new AssetSpec(AssetSpec.portraitId(npc.id(), expression), AssetKind.PORTRAIT_VARIANT,
                         npc.id(), npc.name(), expression, variantPrompt(style, npc, expression), styleKey, beatId,
-                        VARIANT_PRIORITY + c * 2 + v, baseId, AssetSpec.GENERAL, false));
+                        VARIANT_PRIORITY + c * 2 + v, baseId, AssetSpec.GENERAL, false, AppearanceIdentity.key(npc, style)));
                 v++;
             }
             c++;
@@ -103,17 +105,17 @@ public class VisualPlanner {
             String label = "预备形象 " + (++reserve);
             String baseId = AssetSpec.portraitId(visual.id(), AssetSpec.BASE_VARIANT);
             specs.add(new AssetSpec(baseId, AssetKind.PORTRAIT, visual.id(), label, AssetSpec.BASE_VARIANT,
-                    "Transparent character sprite for a visual novel. Appearance only: " + visual.visualDescription()
-                            + ". One isolated person, head to upper thighs, all hair and arms in frame; genuine alpha transparency. "
-                            + "No scenery, border, text or invented name, profession, personality or narrative symbolism. " + style,
-                    styleKey, null, AssetSpec.IDLE_PRIORITY + reserve * 2, null, AssetSpec.GENERAL, false));
+                    preparedPortraitPrompt(style, visual.visualDescription()),
+                    styleKey, null, AssetSpec.IDLE_PRIORITY + reserve * 2, null, AssetSpec.GENERAL, false,
+                    AppearanceIdentity.key(visual.id(), visual.visualDescription(), style)));
             specs.add(new AssetSpec(AssetSpec.characterCardId(visual.id()), AssetKind.CHARACTER_CARD, visual.id(), label,
                     AssetSpec.DEFAULT_VARIANT,
                     "Create a permanent character card from this transparent appearance reference. Preserve the exact face, "
                             + "hair, clothing and physical features. Add a delicate border and a simple opaque abstract background "
                             + "whose colors harmonize with the outfit. This is only an unassigned visual design: no name, lettering, "
                             + "occupation, personality, relationships, story, logos or narrative props. " + style,
-                    styleKey, null, AssetSpec.IDLE_PRIORITY + reserve * 2 + 1, baseId, AssetSpec.GENERAL, false));
+                    styleKey, null, AssetSpec.IDLE_PRIORITY + reserve * 2 + 1, baseId, AssetSpec.GENERAL, false,
+                    AppearanceIdentity.key(visual.id(), visual.visualDescription(), style)));
         }
         return new Plan(style, styleKey, specs);
     }
@@ -140,7 +142,8 @@ public class VisualPlanner {
             return new AssetSpec(AssetSpec.portraitId(npc.id(), variant),
                     isBase ? AssetKind.PORTRAIT : AssetKind.PORTRAIT_VARIANT, npc.id(), npc.name(), variant,
                     (isBase ? portraitPrompt(style, npc, "neutral") : variantPrompt(style, npc, variant)) + extra,
-                    styleKey, beatId, isBase ? 1 : VARIANT_PRIORITY, isBase ? null : baseId, AssetSpec.GENERAL, false);
+                    styleKey, beatId, isBase ? 1 : VARIANT_PRIORITY, isBase ? null : baseId, AssetSpec.GENERAL, false,
+                    AppearanceIdentity.key(npc, style));
         }
         return null;
     }
@@ -156,7 +159,8 @@ public class VisualPlanner {
                         + "this character's role and personality: " + nz(npc.description(), npc.visualDescription())
                         + "; " + nz(npc.personality(), npc.relationshipToPlayer())
                         + ". This card is reused across every expression and scene. No words, lettering or watermark. " + style,
-                styleKey, beatId, 1, AssetSpec.portraitId(npc.id(), AssetSpec.BASE_VARIANT), AssetSpec.GENERAL, false);
+                styleKey, beatId, 1, AssetSpec.portraitId(npc.id(), AssetSpec.BASE_VARIANT), AssetSpec.GENERAL, false,
+                AppearanceIdentity.key(npc, style));
     }
 
     public static String styleFor(CompiledStory story) {
@@ -173,6 +177,12 @@ public class VisualPlanner {
 
     public static String styleKey(String style) {
         return Integer.toHexString(style == null ? 0 : style.hashCode());
+    }
+
+    static String preparedPortraitPrompt(String style, String appearance) {
+        return "Transparent character sprite for a visual novel. Appearance only: " + appearance
+                + ". One isolated person, head to upper thighs, all hair and arms in frame; genuine alpha transparency. "
+                + "No scenery, border, text or invented name, profession, personality or narrative symbolism. " + style;
     }
 
     static String backgroundPrompt(String style, LocationProfile loc) {

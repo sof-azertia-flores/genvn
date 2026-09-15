@@ -73,10 +73,12 @@ public class RuntimeSettings {
             spec("llm.reasoning.arc-continue", "推理力度", "续写章节", "覆盖默认。", Kind.STRING, false),
             spec("llm.reasoning.choice-probabilities", "推理力度", "选项排序", "覆盖默认。", Kind.STRING, false),
             spec("llm.reasoning.spare-designs", "推理力度", "备用形象", "覆盖默认。", Kind.STRING, false),
+            spec("llm.reasoning.story-restructure", "推理力度", "重塑剧情", "覆盖默认。重塑要改写铁律与后续节拍，值得更多推理。", Kind.STRING, false),
             spec("genvn.data-dir", "引擎", "存档目录", "相对后端工作目录。修改后需要重启。", Kind.STRING, true),
             spec("genvn.spare-designs", "引擎", "备用形象数量", "0 关闭补充。最多 3。", Kind.INTEGER, false),
             spec("genvn.access-key", "引擎", "访问密钥", "空表示本机开放。已保存的密钥不会回传。", Kind.SECRET, false),
             spec("genvn.allowed-origins", "引擎", "允许的前端来源", "每行一个源，例如 https://vn.example.com。本机来源始终允许。", Kind.LIST, false),
+            spec("genvn.language", "引擎", "界面与生成语言", "zh 简体中文，en English。界面文案和模型输出都使用该语言。", Kind.STRING, false),
             spec("genvn.speculation.enabled", "预推演与续章", "预推演", "阅读时预先生成选项结果。", Kind.BOOLEAN, false),
             spec("genvn.speculation.max-branches", "预推演与续章", "每幕分支上限", "每幕最多 4 个选项，各一条。", Kind.INTEGER, false),
             spec("genvn.speculation.threads", "预推演与续章", "预推演线程", "后台生成池大小。", Kind.INTEGER, false),
@@ -201,10 +203,12 @@ public class RuntimeSettings {
             case "llm.reasoning.arc-continue" -> llm.getReasoning().getArcContinue();
             case "llm.reasoning.choice-probabilities" -> llm.getReasoning().getChoiceProbabilities();
             case "llm.reasoning.spare-designs" -> llm.getReasoning().getSpareDesigns();
+            case "llm.reasoning.story-restructure" -> llm.getReasoning().getStoryRestructure();
             case "genvn.data-dir" -> genvn.getDataDir();
             case "genvn.spare-designs" -> genvn.getSpareDesigns();
             case "genvn.access-key" -> genvn.getAccessKey();
             case "genvn.allowed-origins" -> genvn.getAllowedOrigins();
+            case "genvn.language" -> genvn.getLanguage();
             case "genvn.speculation.enabled" -> genvn.getSpeculation().isEnabled();
             case "genvn.speculation.max-branches" -> genvn.getSpeculation().getMaxBranches();
             case "genvn.speculation.threads" -> genvn.getSpeculation().getThreads();
@@ -254,6 +258,7 @@ public class RuntimeSettings {
             case "llm.reasoning.arc-continue" -> llm.getReasoning().setArcContinue((String) value);
             case "llm.reasoning.choice-probabilities" -> llm.getReasoning().setChoiceProbabilities((String) value);
             case "llm.reasoning.spare-designs" -> llm.getReasoning().setSpareDesigns((String) value);
+            case "llm.reasoning.story-restructure" -> llm.getReasoning().setStoryRestructure((String) value);
             case "genvn.spare-designs" -> genvn.setSpareDesigns((Integer) value);
             case "genvn.access-key" -> genvn.setAccessKey((String) value);
             case "genvn.allowed-origins" -> {
@@ -261,6 +266,7 @@ public class RuntimeSettings {
                 List<String> origins = (List<String>) value;
                 genvn.setAllowedOrigins(origins);
             }
+            case "genvn.language" -> genvn.setLanguage((String) value);
             case "genvn.speculation.enabled" -> genvn.getSpeculation().setEnabled((Boolean) value);
             case "genvn.speculation.max-branches" -> genvn.getSpeculation().setMaxBranches((Integer) value);
             case "genvn.speculation.threads" -> genvn.getSpeculation().setThreads((Integer) value);
@@ -311,7 +317,11 @@ public class RuntimeSettings {
             return current == null ? "" : current;
         }
         return switch (spec.kind()) {
-            case STRING, SECRET -> raw == null ? "" : String.valueOf(raw);
+            case STRING, SECRET -> {
+                String text = raw == null ? "" : String.valueOf(raw);
+                if (spec.key().equals("genvn.language")) yield UiLanguage.normalize(text);
+                yield text;
+            }
             case BOOLEAN -> {
                 if (raw instanceof Boolean b) yield b;
                 yield Boolean.parseBoolean(String.valueOf(raw));
@@ -375,6 +385,7 @@ public class RuntimeSettings {
         reasoning.put("arc-continue", nullToEmpty(llm.getReasoning().getArcContinue()));
         reasoning.put("choice-probabilities", nullToEmpty(llm.getReasoning().getChoiceProbabilities()));
         reasoning.put("spare-designs", nullToEmpty(llm.getReasoning().getSpareDesigns()));
+        reasoning.put("story-restructure", nullToEmpty(llm.getReasoning().getStoryRestructure()));
         llmMap.put("reasoning", reasoning);
         llmMap.put("force-mock", llm.isForceMock());
         root.put("llm", llmMap);
@@ -384,6 +395,7 @@ public class RuntimeSettings {
         genvnMap.put("spare-designs", genvn.getSpareDesigns());
         genvnMap.put("access-key", nullToEmpty(genvn.getAccessKey()));
         genvnMap.put("allowed-origins", genvn.getAllowedOrigins());
+        genvnMap.put("language", genvn.getLanguage());
         Map<String, Object> speculation = new LinkedHashMap<>();
         speculation.put("enabled", genvn.getSpeculation().isEnabled());
         speculation.put("max-branches", genvn.getSpeculation().getMaxBranches());

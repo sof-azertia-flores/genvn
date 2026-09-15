@@ -111,6 +111,14 @@ public class GameSession {
      */
     @JsonIgnore
     public volatile String resolvingChoiceId;
+    /**
+     * The restructure job rewriting this save's framework right now, or null. Set and cleared
+     * under the session monitor and held across two model calls, so every other mutation -- a
+     * choice, a die, a rewind -- gets an immediate conflict instead of racing a story that is
+     * being rewritten underneath it. Process-local: a restart has no job in flight.
+     */
+    @JsonIgnore
+    public volatile String restructuringJobId;
 
     public void touch() {
         updatedAt = Instant.now().toString();

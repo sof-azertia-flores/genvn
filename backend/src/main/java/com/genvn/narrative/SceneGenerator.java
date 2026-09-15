@@ -16,6 +16,8 @@ import com.genvn.llm.LlmRequest;
 import com.genvn.llm.StructuredLlm;
 import com.genvn.prompt.ContextRenderer;
 import com.genvn.prompt.Prompts;
+import com.genvn.config.GenvnProperties;
+import com.genvn.config.UiLanguage;
 import com.genvn.story.CompiledStory;
 import com.genvn.story.NpcProfile;
 import com.genvn.story.PreparedVisual;
@@ -58,6 +60,8 @@ public class SceneGenerator {
     private final StateReducer reducer;
     private final ObjectMapper mapper;
     private final AssetResolver assets;
+    @Autowired(required = false)
+    private GenvnProperties properties;
 
     public SceneGenerator(StructuredLlm llm, ContextRenderer context) {
         this(llm, context, new StateReducer(), new ObjectMapper(), AssetResolver.none());
@@ -81,11 +85,25 @@ public class SceneGenerator {
         this.assets = assets == null ? AssetResolver.none() : assets;
     }
 
+    private String language() {
+        return properties == null ? UiLanguage.ZH : properties.getLanguage();
+    }
+
     public SceneBundle generate(SceneRequest request) {
         return generate(request, GenerationProgress.NONE);
     }
 
     public SceneBundle generate(SceneRequest request, GenerationProgress progress) {
+        return generate(request, progress, null);
+    }
+
+    /**
+     * @param rewriteInstruction the player's own words when this scene is being written a second
+     *                           time because they rejected the first one, else null. It is passed
+     *                           to the model and to nothing else: never stored on the bundle,
+     *                           never persisted.
+     */
+    public SceneBundle generate(SceneRequest request, GenerationProgress progress, String rewriteInstruction) {
         CompiledStory story = request.story();
         log.info("Session {}: generating scene_{} ({}beat {}{}{})",
                 request.state().sessionId, String.format("%03d", request.sceneIndex()),
@@ -104,6 +122,9 @@ public class SceneGenerator {
         if (currentBeat != null) {
             situation += "\n" + Prompts.beatPacing(request.state().scenesInCurrentBeat, currentBeat.title(), currentBeat.turn());
         }
+        if (rewriteInstruction != null && !rewriteInstruction.isBlank()) {
+            situation += "\n" + Prompts.rewriteSituation(rewriteInstruction);
+        }
 
         Map<String, Object> mockContext = new LinkedHashMap<>();
         mockContext.put("story", story);
@@ -111,12 +132,13 @@ public class SceneGenerator {
         mockContext.put("choice", request.choice());
         mockContext.put("outcome", request.outcome());
         mockContext.put("sceneIndex", request.sceneIndex());
+        mockContext.put("language", language());
 
         // A read-only snapshot of the picture manifest: the prompt sees what exists, the
         // resolver validates whatever the model references. Never bytes, never paths.
         Optional<AssetManifest> manifest = manifestFor(request.state().sessionId);
         LlmRequest llmRequest = LlmRequest.of(LlmPurpose.SCENE_GENERATE,
-                Prompts.SCENE_SYSTEM,
+                Prompts.sceneSystem(language()),
                 Prompts.sceneUser(
                         context.renderStoryFoundation(story, request.state()),
                         context.renderGameState(request.state(), story),

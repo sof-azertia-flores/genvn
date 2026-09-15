@@ -6,6 +6,8 @@ import com.genvn.narrative.CharacterPresence;
 import com.genvn.narrative.SceneBundle;
 import com.genvn.narrative.SceneLocation;
 import com.genvn.story.StoryBeat;
+import com.genvn.story.CompiledStory;
+import com.genvn.story.NpcProfile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * The four moments the story loop talks to the picture pipeline. SessionService calls these
@@ -52,7 +55,9 @@ public class AssetCoordinator {
     public void planForSession(GameSession session) {
         if (!active()) return;
         try {
-            var plan = planner.plan(session.story, session.state, null);
+            reconcileCharacterVersions(session, List::of);
+            var plan = planner.plan(session.story, session.state,
+                    pipeline.snapshot(session.id).map(m -> m.style).orElse(null));
             pipeline.adopt(session.id, plan);
         } catch (RuntimeException e) {
             log.warn("Assets {}: planning failed, play continues with placeholders: {}", session.id, e.toString());
@@ -68,8 +73,9 @@ public class AssetCoordinator {
     public SceneBundle prepareSceneAssets(GameSession session, SceneBundle scene) {
         if (!active()) return scene;
         try {
+            reconcileCharacterVersions(session, List::of);
             Optional<AssetManifest> before = pipeline.snapshot(session.id);
-            String style = before.map(m -> m.style).orElse(VisualPlanner.styleFor(session.story));
+            String style = before.map(m -> m.style).filter(v -> !v.isBlank()).orElse(VisualPlanner.styleFor(session.story));
             String styleKey = before.map(m -> m.styleKey).orElse(VisualPlanner.styleKey(style));
             Map<String, AssetSpec> requested = new LinkedHashMap<>();
             for (AssetRequest request : scene.assetRequests()) {
@@ -82,8 +88,7 @@ public class AssetCoordinator {
                 }
             }
             for (CharacterPresence character : scene.characters()) {
-                if (!com.genvn.game.PlayerCharacter.ID.equals(character.characterId())) continue;
-                String pose = "neutral".equals(character.expression()) ? AssetSpec.BASE_VARIANT : character.expression();
+                String pose = poseVariant(character.expression());
                 AssetSpec spec = planner.fromRequest(session.story,
                         new AssetRequest("portrait", character.characterId(), pose, null),
                         style, styleKey, scene.beatId());
@@ -100,13 +105,50 @@ public class AssetCoordinator {
                 }
                 additions.putIfAbsent(spec.assetId(), spec);
             }
+            // Dialogue can use several expressions in one scene, including a speaker absent
+            // from the opening cast. All of those pictures share that person's base identity.
+            for (var block : scene.blocks()) {
+                if (block.speakerId() == null) continue;
+                AssetSpec pose = planner.fromRequest(session.story,
+                        new AssetRequest("portrait", block.speakerId(), poseVariant(block.expression()), null),
+                        style, styleKey, scene.beatId());
+                if (pose != null) additions.putIfAbsent(pose.assetId(), pose);
+            }
+            // The player's immediate response to a choice uses these two poses.
+            if (session.story.playerVisual != null) {
+                for (String pose : List.of("talking", "action")) {
+                    AssetSpec spec = planner.fromRequest(session.story,
+                            new AssetRequest("portrait", com.genvn.game.PlayerCharacter.ID, pose, null),
+                            style, styleKey, scene.beatId());
+                    if (spec != null) additions.putIfAbsent(spec.assetId(), spec);
+                }
+            }
+            if (scene.location() != null) {
+                String locationId = scene.location().id();
+                AssetSpec background = requested.get("background/" + locationId);
+                String hint = scene.location().backgroundAssetId();
+                AssetRecord existing = before.map(m -> m.get(hint)).orElse(null);
+                String outcome = scene.meta() == null ? "NONE" : scene.meta().outcomeContext();
+                if (background == null && existing != null && existing.spec.kind() == AssetKind.BACKGROUND
+                        && locationId.equals(existing.spec.subjectId()) && existing.spec.appliesTo(outcome)) {
+                    background = existing.spec;
+                }
+                if (background == null) {
+                    String prefix = "bg." + AssetSpec.slug(locationId) + ".";
+                    String variant = hint != null && hint.startsWith(prefix)
+                            ? hint.substring(prefix.length()) : AssetSpec.DEFAULT_VARIANT;
+                    background = planner.fromRequest(session.story,
+                            new AssetRequest("background", locationId, variant, null), style, styleKey, scene.beatId());
+                }
+                if (background != null) additions.putIfAbsent(background.assetId(), background);
+            }
             // A newly present NPC needs both display tracks even when the text model made no
             // asset request, or the compiler's initial pre-render limit excluded this person.
             Set<String> characterIds = new LinkedHashSet<>();
             for (CharacterPresence character : scene.characters()) characterIds.add(character.characterId());
             // Player card stays visible even during narration and NPC dialogue.
             if (session.story.playerVisual != null) characterIds.add(com.genvn.game.PlayerCharacter.ID);
-            for (AssetSpec spec : requested.values()) {
+            for (AssetSpec spec : additions.values()) {
                 if (spec.kind().transparentSprite()) characterIds.add(spec.subjectId());
             }
             for (String characterId : characterIds) {
@@ -120,7 +162,10 @@ public class AssetCoordinator {
                 additions.putIfAbsent(card.assetId(), card);
             }
             if (additions.isEmpty()) return scene;
+            // A missing manifest still needs the save's fixed style before its first adoption.
+            if (before.isEmpty()) pipeline.adopt(session.id, new VisualPlanner.Plan(style, styleKey, List.of()));
             pipeline.adoptSpecs(session.id, new ArrayList<>(additions.values()));
+            pipeline.ensureQueued(session.id, additions.keySet(), true);
             AssetManifest manifest = pipeline.snapshot(session.id).orElse(null);
             if (manifest == null) return scene;
             AssetResolver resolver = AssetResolver.none();
@@ -128,10 +173,8 @@ public class AssetCoordinator {
             SceneLocation location = scene.location();
             if (location != null) {
                 AssetSpec request = requested.get("background/" + location.id());
-                if (request != null) {
-                    location = location.withBackgroundAssetId(resolver.resolveBackground(manifest, location.id(),
-                            request.assetId(), outcome));
-                }
+                location = location.withBackgroundAssetId(resolver.resolveBackground(manifest, location.id(),
+                        request == null ? location.backgroundAssetId() : request.assetId(), outcome));
             }
             List<CharacterPresence> characters = new ArrayList<>();
             for (CharacterPresence character : scene.characters()) {
@@ -258,36 +301,87 @@ public class AssetCoordinator {
         pipeline.forget(sessionId);
     }
 
-    /**
-     * Rewind restored a different cast. Drop character pictures that no longer belong to this
-     * story, or whose appearance no longer matches, so a reused NPC id cannot keep the old face.
-     */
-    public void reconcileAfterRestore(GameSession session) {
+    /** Entering or restoring a scene reuses matching versions and admits only missing pictures. */
+    public void ensureCurrentSceneAssets(GameSession session) {
+        ensureCurrentSceneAssets(session, List::of);
+    }
+
+    public void ensureCurrentSceneAssets(GameSession session, Supplier<List<CompiledStory>> historicalStories) {
         if (!active() || session == null || session.story == null) return;
         try {
-            Map<String, String> appearances = new LinkedHashMap<>();
-            if (session.story.playerVisual != null) {
-                appearances.put(com.genvn.game.PlayerCharacter.ID,
-                        nz(session.story.playerVisual.visualDescription()));
+            reconcileCharacterVersions(session, historicalStories);
+            if (session.currentScene != null) {
+                session.currentScene = prepareSceneAssets(session, session.currentScene);
             }
-            if (session.story.bible != null && session.story.bible.characters() != null) {
-                for (var npc : session.story.bible.characters()) {
-                    if (npc != null && npc.id() != null) appearances.put(npc.id(), nz(npc.visualDescription()));
-                }
-            }
-            if (session.story.encounteredNpcs != null) {
-                for (var npc : session.story.encounteredNpcs) {
-                    if (npc != null && npc.id() != null) appearances.put(npc.id(), nz(npc.visualDescription()));
-                }
-            }
-            pipeline.dropDivergedCharacterArt(session.id, appearances);
         } catch (RuntimeException e) {
-            log.warn("Assets {}: could not reconcile pictures after rewind: {}", session.id, e.toString());
+            log.warn("Assets {}: could not restore current scene pictures: {}", session.id, e.toString());
         }
     }
 
-    private static String nz(String value) {
-        return value == null ? "" : value;
+    public void reconcileAfterRestore(GameSession session) {
+        ensureCurrentSceneAssets(session);
+    }
+
+    public void reconcileAfterRestore(GameSession session, Supplier<List<CompiledStory>> historicalStories) {
+        ensureCurrentSceneAssets(session, historicalStories);
+    }
+
+    private void reconcileCharacterVersions(GameSession session, Supplier<List<CompiledStory>> historicalStories) {
+        AssetManifest manifest = pipeline.snapshot(session.id).orElse(null);
+        if (manifest == null) return;
+        String style = manifest.style == null || manifest.style.isBlank()
+                ? VisualPlanner.styleFor(session.story) : manifest.style;
+        Map<String, String> desired = appearanceKeys(session.story, style);
+        Map<String, String> legacyBindings = new LinkedHashMap<>();
+        List<AssetRecord> unknownBases = manifest.records.values().stream()
+                .filter(r -> r.spec != null && r.spec.kind() == AssetKind.PORTRAIT
+                        && r.spec.appearanceKey() == null).toList();
+        bindLegacyBases(unknownBases, session.story, style, legacyBindings);
+        if (legacyBindings.size() < unknownBases.size() && historicalStories != null) {
+            for (CompiledStory historical : historicalStories.get()) {
+                bindLegacyBases(unknownBases, historical, style, legacyBindings);
+            }
+        }
+        pipeline.reconcileCharacterVersions(session.id, desired, legacyBindings);
+    }
+
+    private static Map<String, String> appearanceKeys(CompiledStory story, String style) {
+        Map<String, String> result = new LinkedHashMap<>();
+        if (story.playerVisual != null) result.put(story.playerVisual.id(), AppearanceIdentity.key(story.playerVisual, style));
+        if (story.bible != null) {
+            for (NpcProfile npc : story.bible.characters()) result.put(npc.id(), AppearanceIdentity.key(npc, style));
+        }
+        for (NpcProfile npc : story.encounteredNpcs) result.putIfAbsent(npc.id(), AppearanceIdentity.key(npc, style));
+        for (var visual : story.preparedVisuals) {
+            result.putIfAbsent(visual.id(), AppearanceIdentity.key(visual.id(), visual.visualDescription(), style));
+        }
+        return result;
+    }
+
+    /** Legacy prompts are evidence only for a base's origin, never an ongoing cache identity. */
+    private static void bindLegacyBases(List<AssetRecord> records, CompiledStory story, String style,
+                                        Map<String, String> bindings) {
+        if (story == null || story.bible == null) return;
+        for (AssetRecord record : records) {
+            AssetSpec spec = record.spec;
+            if (bindings.containsKey(record.recordVersionId)) continue;
+            NpcProfile npc = story.visualCharacter(spec.subjectId());
+            if (npc != null && (VisualPlanner.portraitPrompt(style, npc, "neutral").equals(spec.prompt())
+                    || VisualPlanner.preparedPortraitPrompt(style, AppearanceIdentity.effectiveAppearance(npc))
+                    .equals(spec.prompt()))) {
+                bindings.put(record.recordVersionId, AppearanceIdentity.key(npc, style));
+                continue;
+            }
+            var prepared = story.preparedVisual(spec.subjectId());
+            if (prepared != null && VisualPlanner.preparedPortraitPrompt(style, prepared.visualDescription()).equals(spec.prompt())) {
+                bindings.put(record.recordVersionId, AppearanceIdentity.key(prepared.id(), prepared.visualDescription(), style));
+            }
+        }
+    }
+
+    private static String poseVariant(String expression) {
+        return expression == null || expression.isBlank() || "neutral".equalsIgnoreCase(expression)
+                ? AssetSpec.BASE_VARIANT : expression;
     }
 
     public ImageProperties properties() {

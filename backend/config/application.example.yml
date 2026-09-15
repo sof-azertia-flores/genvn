@@ -67,6 +67,9 @@ llm:
     arc-continue: ""
     choice-probabilities: ""
     spare-designs: ""
+    # Re-planning canon, bible and the remaining beats after the player rejects a
+    # development is the heaviest reasoning job in the game; raise this one first.
+    story-restructure: ""
 
   # Force the mock even when an api-key is present. Useful for offline demos.
   force-mock: false
@@ -95,6 +98,10 @@ genvn:
   # allowed. Give the origin only, no path: ["https://vn.example.com"]. Patterns such
   # as "https://*.pages.dev" work. Empty = loopback only.
   allowed-origins: []
+
+  # UI chrome and model-written prose: zh (Simplified Chinese, default) or en.
+  # Changing this in 设置 takes effect immediately; already-written scenes keep their language.
+  language: zh
 
   speculation:
     # Generate the successors of every choice while you are still reading the

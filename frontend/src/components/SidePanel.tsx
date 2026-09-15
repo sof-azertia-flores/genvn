@@ -1,5 +1,6 @@
 import type { CompiledStory, GameState } from "../types";
-import { STAT_LABEL, STATS, statValue } from "../types";
+import { STATS, statValue } from "../types";
+import { statLabel, useLocale, useT } from "../i18n";
 import CharacterCard from "./CharacterCard";
 
 interface Props {
@@ -10,27 +11,29 @@ interface Props {
 }
 
 export default function SidePanel({ state, story, cardUrl, onClose }: Props) {
+  const { lang } = useLocale();
+  const tr = useT();
   const player = state.player;
   const hpPercent = Math.max(0, Math.round((player.hp / Math.max(1, player.maxHp)) * 100));
   const relations = Object.values(state.characters).filter((c) => c.met);
 
   return (
     <aside className="drawer">
-      <button className="icon-btn close" onClick={onClose}>关闭</button>
+      <button className="icon-btn close" onClick={onClose}>{tr("close")}</button>
       <h2>{player.name}</h2>
       <div className="sheet-portrait">
         <CharacterCard characterId="player" name={player.name} url={cardUrl ?? null} speaking={false} player />
       </div>
-      <div className="sub">{player.background || "（未填写背景）"}</div>
+      <div className="sub">{player.background || tr("noBackground")}</div>
 
       <div className="hp-bar"><i style={{ width: `${hpPercent}%` }} /></div>
       <div className="hp-text">HP {player.hp} / {player.maxHp}</div>
 
-      <h3>属性 Stats</h3>
+      <h3>{tr("stats")}</h3>
       <div className="sheet-stats">
         {STATS.map((s) => (
           <div className="sheet-stat" key={s}>
-            <span>{STAT_LABEL[s].split(" ")[0]}</span>
+            <span>{statLabel(lang, s)}</span>
             <b>{statValue(player.stats, s)}</b>
           </div>
         ))}
@@ -38,25 +41,25 @@ export default function SidePanel({ state, story, cardUrl, onClose }: Props) {
 
       {player.traits.length > 0 && (
         <>
-          <h3>特质 Traits</h3>
+          <h3>{tr("traitsTitle")}</h3>
           <div className="tag-list">
-            {player.traits.map((t) => <span className="tag" key={t}>{t}</span>)}
+            {player.traits.map((item) => <span className="tag" key={item}>{item}</span>)}
           </div>
         </>
       )}
 
       {player.conditions.length > 0 && (
         <>
-          <h3>状态 Conditions</h3>
+          <h3>{tr("conditions")}</h3>
           <div className="tag-list">
             {player.conditions.map((c) => <span className="tag warn" key={c}>{c}</span>)}
           </div>
         </>
       )}
 
-      <h3>持有物 Inventory</h3>
+      <h3>{tr("inventory")}</h3>
       {state.inventory.length === 0 ? (
-        <div className="empty">空无一物。</div>
+        <div className="empty">{tr("inventoryEmpty")}</div>
       ) : (
         state.inventory.map((item) => (
           <div className="item" key={item.name}>
@@ -68,7 +71,7 @@ export default function SidePanel({ state, story, cardUrl, onClose }: Props) {
 
       {relations.length > 0 && (
         <>
-          <h3>关系 Relations</h3>
+          <h3>{tr("relations")}</h3>
           {relations.map((c) => (
             <div className="relation" key={c.id}>
               <span>{c.name}</span>
@@ -87,19 +90,19 @@ export default function SidePanel({ state, story, cardUrl, onClose }: Props) {
         </>
       )}
 
-      <h3>未解之谜 Threads</h3>
+      <h3>{tr("threads")}</h3>
       {state.continuityLedger.length === 0 ? (
-        <div className="empty">暂无。</div>
+        <div className="empty">{tr("threadsEmpty")}</div>
       ) : (
-        state.continuityLedger.map((t) => (
-          <div className={`thread ${t.status === "resolved" ? "resolved" : ""}`} key={t.id}>
-            <code>{t.id}</code>
-            <span>{t.description}</span>
+        state.continuityLedger.map((item) => (
+          <div className={`thread ${item.status === "resolved" ? "resolved" : ""}`} key={item.id}>
+            <code>{item.id}</code>
+            <span>{item.description}</span>
           </div>
         ))
       )}
 
-      <h3>作者铁律 Author Canon</h3>
+      <h3>{tr("authorCanon")}</h3>
       {story.authorCanon.facts.map((f, i) => (
         <div className="thread" key={i}>
           <code>■</code>

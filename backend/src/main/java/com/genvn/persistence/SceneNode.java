@@ -53,6 +53,14 @@ public class SceneNode {
      */
     public GameState state;
 
+    /**
+     * Canonical state as it stood BEFORE this scene was committed, stored only on the root: every
+     * other node can read its parent's {@link #state} for that. The opening has no parent, so
+     * without this there would be nothing to rewrite the opening scene against. Null on nodes
+     * written before this field existed, which simply makes their opening un-restructurable.
+     */
+    public GameState preState;
+
     /** Sealed dice for this scene's own choices, keyed by choice id. Null until visited. */
     public Map<String, CheckResult> sceneDice;
 

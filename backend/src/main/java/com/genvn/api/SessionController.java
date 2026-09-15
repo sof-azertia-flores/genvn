@@ -62,7 +62,7 @@ public class SessionController {
     public Dtos.ConfigView config() {
         return new Dtos.ConfigView(llm.describeClient(), llm.usingMock(),
                 properties.getSpeculation().isEnabled(), properties.getContinuation().isEnabled(),
-                imageProperties.isEnabled());
+                imageProperties.isEnabled(), properties.getLanguage());
     }
 
     @PostMapping("/sessions")

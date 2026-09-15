@@ -3,6 +3,7 @@ package com.genvn.api;
 import com.genvn.asset.AssetCoordinator;
 import com.genvn.asset.AssetManifest;
 import com.genvn.asset.AssetPipeline;
+import com.genvn.asset.AssetPublication;
 import com.genvn.asset.AssetRecord;
 import com.genvn.asset.AssetStatus;
 import com.genvn.asset.AssetStore;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.file.Path;
@@ -83,33 +85,51 @@ public class AssetController {
         List<Map<String, Object>> rows = (List<Map<String, Object>>) status.get("assets");
         // An <img> cannot send the key header, so a locked server signs picture URLs per session.
         String token = gate.assetToken(id);
-        String suffix = token.isEmpty() ? "" : "&" + AccessGate.ASSET_TOKEN_PARAM + "=" + token;
         for (Map<String, Object> row : rows) {
             boolean ready = AssetStatus.READY.name().equals(row.get("status"));
-            row.put("url", ready
-                    ? "/api/assets/" + id + "/" + row.get("assetId") + "?v=" + row.get("generationVersion") + suffix
-                    : null);
+            String publicationId = row.get("publicationId") instanceof String value ? value : null;
+            String query = AssetStore.safePublicationId(publicationId) ? "?v=" + publicationId : "";
+            if (!token.isEmpty()) query += (query.isEmpty() ? "?" : "&") + AccessGate.ASSET_TOKEN_PARAM + "=" + token;
+            row.put("url", ready ? "/api/assets/" + id + "/" + row.get("assetId") + query : null);
         }
         return status;
     }
 
     @GetMapping("/assets/{sessionId}/{assetId}")
-    public ResponseEntity<Resource> file(@PathVariable String sessionId, @PathVariable String assetId) {
+    public ResponseEntity<Resource> file(@PathVariable String sessionId, @PathVariable String assetId,
+                                         @RequestParam(required = false) String v) {
         if (!AssetStore.safeSessionId(sessionId) || !AssetStore.safeAssetId(assetId)) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
         Optional<AssetManifest> manifest = pipeline.snapshot(sessionId);
         if (manifest.isEmpty()) return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        AssetRecord record = manifest.get().get(assetId);
-        if (record == null || record.status != AssetStatus.READY || record.fileName == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        String fileName;
+        boolean immutable = v != null && !v.matches("[0-9]+");
+        if (immutable) {
+            if (!AssetStore.safePublicationId(v)) return ResponseEntity.notFound().build();
+            AssetPublication publication = manifest.get().publications.get(v);
+            if (publication == null || !v.equals(publication.publicationId())
+                    || !assetId.equals(publication.assetId())) return ResponseEntity.notFound().build();
+            fileName = publication.fileName();
+        } else {
+            // Old numeric cache busters were mutable aliases, not publication identities.
+            AssetRecord record = manifest.get().get(assetId);
+            if (record == null || record.status != AssetStatus.READY || record.fileName == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+            fileName = record.fileName;
         }
-        Optional<Path> path = store.imagePath(sessionId, record.fileName);
+        Optional<Path> path = store.imagePath(sessionId, fileName);
         if (path.isEmpty()) return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        MediaType type = MediaType.parseMediaType(AssetStore.mimeFor(record.fileName));
+        MediaType type = MediaType.parseMediaType(AssetStore.mimeFor(fileName));
         return ResponseEntity.ok()
                 .contentType(type)
-                .cacheControl(CacheControl.maxAge(365, TimeUnit.DAYS).cachePrivate().immutable())
+                .cacheControl(immutable ? CacheControl.maxAge(365, TimeUnit.DAYS).cachePrivate().immutable()
+                        : CacheControl.noCache().cachePrivate())
                 .body(new FileSystemResource(path.get()));
+    }
+
+    public ResponseEntity<Resource> file(String sessionId, String assetId) {
+        return file(sessionId, assetId, null);
     }
 }
