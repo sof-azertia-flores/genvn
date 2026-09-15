@@ -20,3 +20,16 @@ test("pregame art style is available with images enabled and goes with the playe
   assert.equal(field("art-style"), undefined);
   ui.unmount();
 });
+
+test("the setup masthead offers a settings entry", async () => {
+  let opened = false;
+  const ui = harness("components/SetupView.tsx", { "../setup.css": {}, "../api": { api: { listSessions: async () => [] } }, "../useCreationJob": { default: () => ({ pending: false, job: null, begin() {} }) } });
+  ui.render({ config: { imageEnabled: false }, onStarted() {}, onLoad() {}, onOpenSettings: () => { opened = true; } });
+  await flush();
+  const button = nodes(ui.tree, (n) => typeof n.props?.className === "string" && n.props.className.includes("setup-settings"))[0];
+  assert.ok(button);
+  assert.ok(nodes(ui.tree, (n) => typeof n.props?.className === "string" && n.props.className.includes("setup-language")).length);
+  button.props.onClick();
+  assert.equal(opened, true);
+  ui.unmount();
+});

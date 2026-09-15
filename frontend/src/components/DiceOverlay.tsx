@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Check, RollView } from "../types";
+import { useT } from "../i18n";
 
 interface Props {
   check: Check;
@@ -12,6 +13,7 @@ interface Props {
  * not a simulation. The tumbling numbers are cosmetic; `roll.d20` is the authoritative value.
  */
 export default function DiceOverlay({ check, roll, onDone }: Props) {
+  const tr = useT();
   const [face, setFace] = useState(1);
   const [settled, setSettled] = useState(false);
   /** The roll itself is a millisecond call; if it has not arrived in a while, say so. */
@@ -22,8 +24,8 @@ export default function DiceOverlay({ check, roll, onDone }: Props) {
       setSlow(false);
       return;
     }
-    const t = setTimeout(() => setSlow(true), 6000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setSlow(true), 6000);
+    return () => clearTimeout(timer);
   }, [roll]);
 
   useEffect(() => {
@@ -45,15 +47,15 @@ export default function DiceOverlay({ check, roll, onDone }: Props) {
 
   useEffect(() => {
     if (!settled) return;
-    const t = setTimeout(onDone, 2600);
-    return () => clearTimeout(t);
+    const timer = setTimeout(onDone, 2600);
+    return () => clearTimeout(timer);
   }, [settled, onDone]);
 
   return (
     <div className="dice-overlay" onClick={settled ? onDone : undefined}>
       <div className="dice-card">
         <div className="what">
-          {check.description || "属性检定"}
+          {check.description || tr("attrCheck")}
           <br />
           {check.stat} · DC {check.dc}
         </div>
@@ -68,16 +70,16 @@ export default function DiceOverlay({ check, roll, onDone }: Props) {
               {roll.success ? "SUCCESS" : "FAILURE"}
             </div>
             <div className="verdict-note" style={{ marginBottom: 10 }}>
-              {roll.critical && "自然 20 —— "}
-              {roll.fumble && "自然 1 —— "}
-              {roll.success ? "故事按你的意图推进。" : "失败不是死路：故事继续，但你要付出代价。"}
+              {roll.critical && tr("nat20")}
+              {roll.fumble && tr("nat1")}
+              {roll.success ? tr("storyByIntent") : tr("failForward")}
             </div>
             <div style={{ fontSize: 11, color: "var(--ink-faint)", fontFamily: "var(--mono)" }}>
-              点击继续
+              {tr("clickContinue")}
             </div>
           </>
         ) : (
-          <div className="dice-math">{slow ? "服务器响应较慢，仍在等待骰子…" : "掷骰中…"}</div>
+          <div className="dice-math">{slow ? tr("rollSlow") : tr("rolling")}</div>
         )}
       </div>
     </div>

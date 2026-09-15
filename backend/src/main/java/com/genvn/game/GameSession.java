@@ -70,6 +70,12 @@ public class GameSession {
     public CompiledStory story;
     public GameState state;
     public SceneBundle currentScene;
+    /**
+     * Head of the scene tree: the node id of {@link #currentScene}. Node ids are scene ids
+     * (or a parent__choice__outcome key for a candidate that was generated and not yet played).
+     * Absent in saves written before the tree existed.
+     */
+    public String currentNodeId;
     public List<HistoryEntry> history = new ArrayList<>();
     public int sceneCounter = 0;
     public boolean finished = false;
@@ -80,6 +86,12 @@ public class GameSession {
     public volatile boolean deleted = false;
     @JsonIgnore
     public volatile boolean continuationPending = false;
+    /**
+     * Bumped on rewind so an in-flight arc plan from a previous path cannot write back here.
+     * Process-local: a restart has no in-flight planner.
+     */
+    @JsonIgnore
+    public volatile int continuationEpoch;
     /** Next-arc outline generated in the background; consumed when the current spine runs out. */
     public volatile ArcOutline pendingArc;
     /** See {@link PendingRoll}. Null whenever no die is outstanding. */
@@ -99,6 +111,14 @@ public class GameSession {
      */
     @JsonIgnore
     public volatile String resolvingChoiceId;
+    /**
+     * The restructure job rewriting this save's framework right now, or null. Set and cleared
+     * under the session monitor and held across two model calls, so every other mutation -- a
+     * choice, a die, a rewind -- gets an immediate conflict instead of racing a story that is
+     * being rewritten underneath it. Process-local: a restart has no job in flight.
+     */
+    @JsonIgnore
+    public volatile String restructuringJobId;
 
     public void touch() {
         updatedAt = Instant.now().toString();

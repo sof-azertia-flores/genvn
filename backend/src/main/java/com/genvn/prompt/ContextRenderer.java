@@ -124,6 +124,36 @@ public class ContextRenderer {
         return sb.toString();
     }
 
+    /**
+     * For a restructure: exactly the beats the engine will KEEP, plus the ids that are therefore
+     * spent. Unlike {@link #renderPlayedBeats} this never lists a beat that has not been completed,
+     * because the restructure is allowed -- and expected -- to replace everything still ahead.
+     */
+    public String renderCompletedBeats(CompiledStory story, GameState state) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("## BEATS ALREADY COMPLETED (these happened; the engine keeps them and you must not restate them)\n");
+        List<String> completed = state == null || state.completedBeats == null ? List.of() : state.completedBeats;
+        boolean any = false;
+        for (var arc : story.laterArcs) {
+            for (StoryBeat beat : arc.beats()) {
+                if (!completed.contains(beat.id())) continue;
+                appendPlayed(sb, arc.arcTitle(), beat);
+                any = true;
+            }
+        }
+        for (StoryBeat beat : story.spine.beats()) {
+            if (!completed.contains(beat.id())) continue;
+            appendPlayed(sb, story.spine.arcTitle(), beat);
+            any = true;
+        }
+        if (!any) sb.append("- (none yet: the story is still inside its first beat)\n");
+        sb.append("Beat ids already spent, which a new beat may never reuse: ")
+          .append(completed.isEmpty() ? "(none)" : String.join(", ", completed)).append('\n');
+        sb.append("Every beat listed in the story spine above that is NOT in this list is still ahead ")
+          .append("and is yours to replace.\n");
+        return sb.toString();
+    }
+
     private static void appendPlayed(StringBuilder sb, String arcTitle, StoryBeat beat) {
         sb.append("- (").append(nz(arcTitle)).append(") ").append(beat.title())
           .append(" -- ").append(nz(beat.purpose()))

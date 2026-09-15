@@ -22,7 +22,7 @@ export function harness(file, stubs = {}, options = {}) {
   const timers = new Map(), listeners = new Map(), images = [], cache = new Map();
   class Element { closest() { return null; } }
   class HTMLElement extends Element { focus() {} }
-  const document = { activeElement: null };
+  const document = { activeElement: null, documentElement: { lang: "zh-CN" } };
   const root = fileURLToPath(new URL("../src/", import.meta.url));
   const storage = options.storage ?? new Map();
   const window = {
@@ -60,6 +60,12 @@ export function harness(file, stubs = {}, options = {}) {
   };
   react.useLayoutEffect = react.useEffect;
   const jsx = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }), Fragment: "Fragment" };
+  react.createContext = (defaultValue) => {
+    const ctx = { _current: defaultValue, defaultValue };
+    ctx.Provider = (props) => { ctx._current = props.value; return props.children; };
+    return ctx;
+  };
+  react.useContext = (ctx) => ctx._current ?? ctx.defaultValue;
   function load(path) {
     if (cache.has(path)) return cache.get(path);
     const module = { exports: {} };

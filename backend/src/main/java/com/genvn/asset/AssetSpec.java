@@ -7,9 +7,8 @@ import java.util.Locale;
 /**
  * One planned picture. The id is derived from stable story identity (location/character id,
  * variant) so the same picture is only ever requested once no matter how many beats or
- * speculative branches would like it. The generation prompt and style key are part of the
- * cache identity: change the look and you get a new asset, not a silently different file
- * under an old name.
+ * speculative branches would like it. Character appearance is identified explicitly; prompt
+ * wording and scheduling hints do not decide whether an existing picture can be reused.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record AssetSpec(
@@ -28,8 +27,17 @@ public record AssetSpec(
         String dependsOn,
         /** GENERAL, or OUTCOME:SUCCESS / OUTCOME:FAILURE for pictures tied to a consequence. */
         String applicability,
-        boolean landscape
+        boolean landscape,
+        /** Stable character appearance; null for backgrounds and unattributed legacy records. */
+        String appearanceKey
 ) {
+    public AssetSpec(String assetId, AssetKind kind, String subjectId, String subjectName, String variant,
+                     String prompt, String styleKey, String beatId, int priority, String dependsOn,
+                     String applicability, boolean landscape) {
+        this(assetId, kind, subjectId, subjectName, variant, prompt, styleKey, beatId, priority,
+                dependsOn, applicability, landscape, null);
+    }
+
     /** Pure appearance reserves run only when a worker has no foreground work. */
     public static final int IDLE_PRIORITY = 1000;
 
@@ -74,17 +82,22 @@ public record AssetSpec(
     /** Same picture, newer wording: used only for records that have not produced a file yet. */
     public AssetSpec withPrompt(String newPrompt) {
         return new AssetSpec(assetId, kind, subjectId, subjectName, variant, newPrompt, styleKey, beatId,
-                priority, dependsOn, applicability, landscape);
+                priority, dependsOn, applicability, landscape, appearanceKey);
     }
 
     public AssetSpec withPriority(int newPriority) {
         return new AssetSpec(assetId, kind, subjectId, subjectName, variant, prompt, styleKey, beatId,
-                newPriority, dependsOn, applicability, landscape);
+                newPriority, dependsOn, applicability, landscape, appearanceKey);
     }
 
     /** A spare appearance was cast: relabel and prioritize it without changing its drawn identity. */
     public AssetSpec assignedTo(String name, String firstBeat, int newPriority) {
         return new AssetSpec(assetId, kind, subjectId, name, variant, prompt, styleKey, firstBeat,
-                newPriority, dependsOn, applicability, landscape);
+                newPriority, dependsOn, applicability, landscape, appearanceKey);
+    }
+
+    public AssetSpec withAppearanceKey(String key) {
+        return new AssetSpec(assetId, kind, subjectId, subjectName, variant, prompt, styleKey, beatId,
+                priority, dependsOn, applicability, landscape, key);
     }
 }

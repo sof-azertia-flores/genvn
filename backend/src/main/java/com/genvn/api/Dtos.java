@@ -49,6 +49,19 @@ public final class Dtos {
             @NotNull @Min(0) Integer expectedStateVersion
     ) {}
 
+    /**
+     * A request to rewrite the story from one scene onward, in the player's own words.
+     *
+     * Deliberately not a widened {@link ChooseRequest}: that record is shared by roll, choose and
+     * rewind, none of which should ever carry free text. {@code instruction} is passed to the
+     * model and then dropped -- it is never stored in the save or returned by any endpoint.
+     */
+    public record RestructureRequest(
+            @NotBlank String expectedSceneId,
+            @NotNull @Min(0) Integer expectedStateVersion,
+            @NotBlank @Size(max = 2000) String instruction
+    ) {}
+
     /** A die already cast on the current scene; the client resumes from it. */
     public record PendingRollView(String choiceId, RollView roll) {
         public static PendingRollView from(GameSession.PendingRoll p) {
@@ -116,10 +129,15 @@ public final class Dtos {
             boolean mockMode,
             boolean speculationEnabled,
             boolean continuationEnabled,
-            boolean imageEnabled
+            boolean imageEnabled,
+            String language
     ) {
         public ConfigView(String llm, boolean mockMode, boolean speculationEnabled, boolean continuationEnabled) {
-            this(llm, mockMode, speculationEnabled, continuationEnabled, false);
+            this(llm, mockMode, speculationEnabled, continuationEnabled, false, "zh");
+        }
+        public ConfigView(String llm, boolean mockMode, boolean speculationEnabled, boolean continuationEnabled,
+                          boolean imageEnabled) {
+            this(llm, mockMode, speculationEnabled, continuationEnabled, imageEnabled, "zh");
         }
     }
 
@@ -143,5 +161,9 @@ public final class Dtos {
     public record ErrorView(String error, String message) {}
 
     /** Whether the server wants an access key, and whether the one sent with this request is right. */
-    public record AccessView(boolean required, boolean granted) {}
+    public record AccessView(boolean required, boolean granted, String language) {
+        public AccessView(boolean required, boolean granted) {
+            this(required, granted, "zh");
+        }
+    }
 }

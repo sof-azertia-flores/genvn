@@ -1,4 +1,4 @@
-import type { AccessView, AssetsStatus, ChoiceView, ConfigView, CreationJobView, HistoryPage, RollResponse, SessionSummary, SessionTasksView, SessionView } from "./types";
+import type { AccessView, AssetsStatus, ChoiceView, ConfigView, CreationJobView, HistoryPage, RollResponse, SessionSummary, SessionTasksView, SessionView, SettingsView } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly code: string) {
@@ -116,6 +116,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ expectedSceneId, expectedStateVersion }),
     }),
+  rewind: (id: string, nodeId: string, expectedSceneId: string, expectedStateVersion: number) =>
+    request<SessionView>(`/sessions/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/rewind`, {
+      method: "POST",
+      body: JSON.stringify({ expectedSceneId, expectedStateVersion }),
+    }),
+  /**
+   * Rewrite the story from one scene onward. Two model calls, so it answers with a job to poll
+   * rather than a session; the instruction is sent once and kept nowhere.
+   */
+  restructure: (id: string, nodeId: string, instruction: string, expectedSceneId: string,
+                expectedStateVersion: number, requestId?: string, signal?: AbortSignal) =>
+    request<CreationJobView>(`/sessions/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/restructure`, {
+      method: "POST",
+      body: JSON.stringify({ expectedSceneId, expectedStateVersion, instruction }),
+      signal,
+      headers: { "Content-Type": "application/json", ...(requestId ? { "Idempotency-Key": requestId } : {}) },
+    }),
+  restructureJob: (jobId: string, signal?: AbortSignal) =>
+    request<CreationJobView>(`/session-restructures/${encodeURIComponent(jobId)}`, { signal }),
   debug: (id: string) => request<Record<string, unknown>>(`/sessions/${encodeURIComponent(id)}/debug`),
   tasks: (id: string, signal?: AbortSignal) =>
     request<SessionTasksView>(`/sessions/${encodeURIComponent(id)}/tasks`, { signal }),
@@ -130,4 +149,7 @@ export const api = {
   /** Picture status. Lock-free on the server, cheap to poll while anything is still generating. */
   assets: (id: string, signal?: AbortSignal) =>
     request<AssetsStatus>(`/sessions/${encodeURIComponent(id)}/assets`, { signal }),
+  settings: () => request<SettingsView>("/settings"),
+  saveSettings: (values: Record<string, unknown>) =>
+    request<SettingsView>("/settings", { method: "PUT", body: JSON.stringify({ values }) }),
 };

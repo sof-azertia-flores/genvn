@@ -210,7 +210,7 @@ class AssetPipelineTest {
         }
 
         // Corrupt the file: the next start must notice, not serve garbage, and repair within budget.
-        Path file = dir.resolve("s1").resolve("bg.loc_a.default.png");
+        Path file = pipeline.readyFile("s1", "bg.loc_a.default").orElseThrow();
         Files.write(file, new byte[]{1, 2, 3});
         AssetPipeline repaired = new AssetPipeline(fake, new AssetStore(mapper, dir), props, mapper);
         try {
@@ -223,7 +223,7 @@ class AssetPipelineTest {
             assertEquals(AssetStatus.READY, r.status);
             assertEquals(2, r.generationVersion, "a fresh file was published under a new version");
             assertEquals(2, fake.calls.get(), "exactly one repair call");
-            assertTrue(javax.imageio.ImageIO.read(file.toFile()).getWidth() > 0);
+            assertTrue(javax.imageio.ImageIO.read(repaired.readyFile("s1", "bg.loc_a.default").orElseThrow().toFile()).getWidth() > 0);
         } finally {
             repaired.shutdown();
         }

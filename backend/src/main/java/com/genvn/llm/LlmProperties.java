@@ -45,6 +45,7 @@ public class LlmProperties {
         private String arcContinue = "";
         private String choiceProbabilities = "";
         private String spareDesigns = "";
+        private String storyRestructure = "";
 
         /** The effort to send for this purpose, or an empty string to send nothing. */
         public String effortFor(LlmPurpose purpose) {
@@ -54,6 +55,7 @@ public class LlmProperties {
                 case ARC_CONTINUE -> arcContinue;
                 case CHOICE_PROBABILITIES -> choiceProbabilities;
                 case SPARE_DESIGNS -> spareDesigns;
+                case STORY_RESTRUCTURE -> storyRestructure;
             };
             String chosen = specific == null || specific.isBlank() ? effort : specific;
             return chosen == null ? "" : chosen.trim().toLowerCase(java.util.Locale.ROOT);
@@ -71,6 +73,8 @@ public class LlmProperties {
         public void setChoiceProbabilities(String choiceProbabilities) { this.choiceProbabilities = choiceProbabilities; }
         public String getSpareDesigns() { return spareDesigns; }
         public void setSpareDesigns(String spareDesigns) { this.spareDesigns = spareDesigns; }
+        public String getStoryRestructure() { return storyRestructure; }
+        public void setStoryRestructure(String storyRestructure) { this.storyRestructure = storyRestructure; }
     }
 
     public Reasoning getReasoning() { return reasoning; }

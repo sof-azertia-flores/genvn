@@ -35,6 +35,8 @@ public class AssetStore {
     private static final Logger log = LoggerFactory.getLogger(AssetStore.class);
     private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9_.\\-\\u4e00-\\u9fff]{1,140}");
     private static final Pattern SAFE_SESSION = Pattern.compile("[A-Za-z0-9_\\-]{1,64}");
+    private static final Pattern SAFE_VERSION = Pattern.compile("[A-Za-z0-9_\\-]{1,96}");
+    private static final Pattern SAFE_PUBLICATION = Pattern.compile("[A-Za-z0-9_\\-]{1,128}");
 
     public record Stored(String fileName, String mimeType, int width, int height, long bytes, String contentHash) {}
 
@@ -68,6 +70,16 @@ public class AssetStore {
         return id != null && SAFE_SESSION.matcher(id).matches();
     }
 
+    public static boolean safePublicationId(String id) {
+        return id != null && SAFE_PUBLICATION.matcher(id).matches() && !id.matches("[0-9]+");
+    }
+
+    public static String publicationId(String recordVersionId, int generationVersion) {
+        if (recordVersionId == null || !SAFE_VERSION.matcher(recordVersionId).matches()
+                || generationVersion <= 0) throw new IllegalArgumentException("invalid image version");
+        return "v_" + recordVersionId + "_" + generationVersion;
+    }
+
     private Path sessionDir(String sessionId) {
         if (!safeSessionId(sessionId)) throw new IllegalArgumentException("invalid session id");
         Path dir = root.resolve(sessionId).normalize();
@@ -94,6 +106,7 @@ public class AssetStore {
             AssetManifest m = mapper.readValue(file.toFile(), AssetManifest.class);
             if (m.records == null) m.records = new java.util.LinkedHashMap<>();
             if (m.budget == null) m.budget = new AssetManifest.Budget();
+            m.normalizeVersions();
             return Optional.of(m);
         } catch (IOException e) {
             log.warn("Could not read asset manifest for {}: {}", sessionId, e.toString());
@@ -123,19 +136,32 @@ public class AssetStore {
     /** Decode-validate, then publish atomically. Throws if the bytes are not a complete image. */
     public Stored save(String sessionId, String assetId, byte[] bytes, String mimeType) throws IOException {
         if (!safeAssetId(assetId)) throw new IllegalArgumentException("invalid asset id");
+        return saveImage(sessionId, assetId, bytes, mimeType, false);
+    }
+
+    /** Each publication has its own immutable file; retries must advance generationVersion. */
+    public Stored saveVersioned(String sessionId, String assetId, String recordVersionId,
+                                int generationVersion, byte[] bytes, String mimeType) throws IOException {
+        if (!safeAssetId(assetId)) throw new IllegalArgumentException("invalid asset id");
+        return saveImage(sessionId, publicationId(recordVersionId, generationVersion), bytes, mimeType, true);
+    }
+
+    private Stored saveImage(String sessionId, String stem, byte[] bytes, String mimeType,
+                             boolean immutable) throws IOException {
         Path dir = sessionDir(sessionId);
         Files.createDirectories(dir);
         BufferedImage image = decode(bytes);
         String ext = extensionFor(mimeType);
-        String fileName = assetId + "." + ext;
+        String fileName = stem + "." + ext;
         Path target = inside(dir, fileName);
         Path tmp = null;
         try {
-            tmp = Files.createTempFile(dir, assetId + "-", "." + ext + ".tmp");
+            tmp = Files.createTempFile(dir, stem + "-", "." + ext + ".tmp");
             Files.write(tmp, bytes);
             // Re-read the temp file: what we publish must itself decode, not just the buffer.
             if (decode(Files.readAllBytes(tmp)) == null) throw new IOException("temp file did not decode");
-            move(tmp, target);
+            if (immutable) publishNew(tmp, target);
+            else move(tmp, target);
         } finally {
             cleanup(tmp);
         }
@@ -162,6 +188,15 @@ public class AssetStore {
             return bytes.length > 0 && decode(bytes) != null;
         } catch (IOException e) {
             return false;
+        }
+    }
+
+    public void deleteFile(String sessionId, String fileName) {
+        try {
+            Path p = inside(sessionDir(sessionId), fileName);
+            Files.deleteIfExists(p);
+        } catch (RuntimeException | IOException e) {
+            log.warn("Could not delete picture {} of session {}: {}", fileName, sessionId, e.toString());
         }
     }
 
@@ -272,6 +307,16 @@ public class AssetStore {
             Files.move(from, to, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (AtomicMoveNotSupportedException e) {
             Files.move(from, to, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static void publishNew(Path from, Path to) throws IOException {
+        try {
+            // Linking a complete file publishes atomically AND refuses an existing target.
+            // ATOMIC_MOVE alone may replace that target even without REPLACE_EXISTING.
+            Files.createLink(to, from);
+        } catch (UnsupportedOperationException e) {
+            Files.move(from, to); // No replacement on filesystems without hard-link support.
         }
     }
 

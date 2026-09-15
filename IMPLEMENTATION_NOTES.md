@@ -17,7 +17,7 @@ Implementation history, current behavior, and validation, including the visual a
 | P0.7 | Canonical state really changes | **done** — inventory, flags, relations, location, HP, conditions, beats, threads |
 | P0.8 | One-step speculative generation | **done** — one candidate per choice; a check's die is cast ahead and sealed |
 | P0.9 | Invalid LLM output never crashes the app | **done** — repair loop, local normalisation, clean 502 |
-| P0.10 | Actually built, run and tested | **done** — 132 backend tests, 36 frontend tests, plus browser play-throughs |
+| P0.10 | Actually built, run and tested | **done** — 302 backend tests, 83 frontend tests, plus browser play-throughs |
 
 P1 also landed: **Story Arc Continuation** (a second arc is planned in the background and taken up
 when the spine runs out), **file save** after every commit, and a save list on the start screen.
@@ -39,9 +39,9 @@ POST /api/sessions/{id}/choices/{choiceId}
   2. BranchCache.takeIfFresh(sceneId, choiceId, SUCCESS|FAILURE|NONE, stateVersion)
        hit  -> use the pre-generated candidate
        miss -> SceneGenerator.generate() right now
-  3. BranchCache.discardAll()     ← every other candidate dies here
+  3. BranchCache.discardAll()     ← in-memory unused candidates die; finished ones were already written to the tree
   4. commitScene()                ← StateReducer validates + applies the delta
-  5. repository.save()            ← data/sessions/<id>.json
+  5. repository.save()            ← data/sessions/<id>/session.json plus nodes/<sceneId>.json
   6. prefetch() the new frontier + maybe plan the next arc
 ```
 
@@ -175,7 +175,7 @@ against a 12-op allow-list.
 
 ---
 
-## Tests (233, `./gradlew test`)
+## Tests (302, `./gradlew test`)
 
 The three correctness cases from the brief are tested by name:
 
@@ -740,3 +740,150 @@ refusals with CORS headers, the key-free probe and preflight, per-save tokens, o
 normalisation. `access.test.mjs` covers the baked-in origin, the header on every request, the
 listener on 401 and the key screen's keep/drop/unreachable behaviour. App tests now flush once
 after the first render, since the setup screen appears only after the access probe answers.
+
+## Branching saves: rewind to a former choice (2026-09-12)
+
+Each save is a directory `data/sessions/<id>/session.json` with an append-only scene tree beside
+it (`nodes/<nodeId>.json`, content-addressed `stories/<hash>.json`). A node is one scene; an
+edge is a choice. Node ids are scene ids, minted from a counter that never goes backwards, so
+they are never reused.
+
+On every commit the engine writes a visited node (scene, state snapshot, sealed dice). Finished
+unused speculative branches are kept as unvisited children keyed `parent__choice__outcome`
+instead of being dropped; in-flight ones are still cancelled. `POST .../nodes/{id}/rewind`
+moves the head to a visited node without re-rolling. Re-taking the same choice restores that
+visited child; taking a different one adopts the retained candidate through `commitScene`.
+`stateVersion` still advances so a stale page 409s.
+
+Legacy single-file saves still load; the next save migrates them. A migrated save can rewind
+to the scene it was on when upgraded, then grows the tree from there. Dice stay sealed per
+node: the story changes by choosing differently.
+
+`SaveTreeRewindTest` covers restore-without-regeneration and unused-branch adoption.
+History entries expose `restorable`; the 剧情回顾 dialog offers **从这里重新选择**.
+
+## Scene-tree audit fixes, settings, player card (2026-09-12)
+
+A review of the rewind save format found several ways a crash or a branch change could
+corrupt the tree or leak art across routes. Those are closed; the menu also grew a live
+settings editor.
+
+- **Node ids are never reused.** Loading a save raises `sceneCounter` past every `scene_NNN`
+  already on disk. A commit refuses to overwrite a visited node and mints the next free id
+  instead, so a crash between the node write and `session.json` cannot parent a scene to itself.
+- **Late continuation updates the tree node**, not only `session.json`, so rewinding to a
+  chapter ending still offers 「继续下一章」.
+- **`pendingArc` is stored on the node** and restored on rewind. In-flight planners key by a
+  process-local epoch (bumped on rewind), so a plan from route A cannot land on route B or block
+  B from planning. Walking forward on the same path still accepts a late outline.
+- **Character pictures follow appearance.** Rewind drops NPC art that no longer belongs to the
+  restored story. Adopting a named role keeps a READY spare's prompt and file; a later route
+  whose appearance text no longer matches replaces that file instead of showing the old face.
+- **A missing rewind point stays unhealthy.** `repository.save` can no longer flip `saveHealthy`
+  to true when the current node file is absent; `require()` retries the write.
+- **Delete leftover-first.** When a directory save and a leftover `<id>.json` coexist, the
+  leftover is removed before the directory is renamed. A leftover that cannot go leaves the
+  latest progress in place.
+- **Rewind does not regenerate saved children.** Prefetch skips a choice that already has a
+  tree child. Nested prepared ids that would exceed 160 characters are hashed (`p_` + 16 hex).
+- **剧情回顾** disables rewind and explains why while a submitted choice is still on screen.
+- **设置** (setup masthead and in-game menu) edits every key in `application.yml`. Secrets are
+  never returned. Bind address, port and data-dir still need a restart; LLM, image, speculation,
+  continuation, access key and CORS take effect immediately via live property beans and
+  reloadable clients.
+- **我的角色** shows the player card under the name.
+
+`SaveTreeIntegrityTest`, `RuntimeSettingsTest`, `SceneTreeStoreTest` nested-id coverage and
+the mixed-layout delete case lock these in.
+
+## UI and generation language (2026-09-12)
+
+`genvn.language` (`zh` default, or `en`) is a live setting. The start-screen masthead, access
+key screen and settings dialog switch UI chrome immediately; `PUT /api/settings` writes the
+value so later story compilation, scenes, continuation and spare designs prompt the model
+to write player-visible prose in that language (JSON keys stay English). Mock replies follow
+the same switch. Compile-log milestones are bilingual. Already-written scenes keep the language
+they were generated in.
+
+`GET /api/access` (no key) and `GET /api/config` both expose `language`. `UiLanguageTest` and
+the settings hot-reload path cover normalisation (`English` → `en`).
+
+---
+
+## Rewind-safe character artwork (2026-09-12)
+
+Character assets now carry a SHA-256 appearance key built from the subject ID, normalized effective
+visual description, and the save's fixed art style. Cards and poses inherit the base's identity;
+changed names, personality text, prompt phrasing, and assigning a prepared design do not redraw it.
+Logical asset IDs remain stable. The manifest retains every appearance lifecycle, selects the
+current route's records, and keeps immutable publication entries for previously issued image URLs.
+PNG files use lifecycle and publication sequence names; rewinding never deletes or overwrites them.
+
+Queue admission, backoff, subscriptions, reference dependencies and callbacks bind to the lifecycle
+version. Unsent work is deactivated on route changes, while sent calls may finish only into their
+original archive. Publication sequences are reserved with the durable attempt before sending a
+request, so a crash between writing a PNG and saving its manifest cannot overwrite that file.
+
+Opening one save, restoring a scene, or committing a new scene checks the player, present NPCs,
+selected background, and dialogue/action poses. Missing required art enters the existing queue only
+when generation is enabled. Repeated checks reuse READY files and pending work, preserve failed
+attempt limits, and leave the existing manual retry control available. Startup save-dice migration
+does not trigger artwork for every save. Legacy base prompts are matched to current or historical
+story snapshots once; dependent art inherits the verified reference identity. Unknown old records
+and files stay archived without bulk migration.
+
+Focused regressions cover unchanged-image reuse, A/B/A with restart, prepared-design adoption,
+legacy attribution, current-only missing repair, disabled generation, late callbacks, exact
+reference bytes, immutable URL resolution, bounded retries, full queues, and the public save-tree
+rewind path. Validation uses temporary data and mock image/text providers.
+
+## 重塑剧情: rewriting the story from a scene the player refused (2026-09-15)
+
+Rewinding changes which path is current. It cannot change what the story is *about* — the compiled
+framework is fixed at creation and only ever replaced wholesale when a new arc begins. A player who
+dislikes where the plot is going had no way to say so.
+
+`POST /api/sessions/{id}/nodes/{nodeId}/restructure` takes free text and folds it into the framework
+itself, from that scene onward. It answers 202 with a job (`GET /api/session-restructures/{jobId}`)
+because it is two model calls; the UI shows the same progress bar story creation uses.
+
+- **The request outranks the canon.** `STORY_RESTRUCTURE` re-emits `authorCanonFacts` and the whole
+  bible corrected, and the beats still to come. Where the request contradicts author canon or hard
+  canon, the canon is what gives way — that is the feature, not a side effect.
+- **What has been played is kept.** The model returns only the remaining beats; the engine splices
+  `completed beats (in spine order) ++ the new tail`, so `completedBeats` keeps resolving for
+  `StateReducer` and `StoryProgress`. `currentBeatId` becomes the first new beat. Every character id
+  with a `CharacterState` and every visited location id must still be in the revised bible — the
+  validator sends a revision back for dropping one, and `apply` merges the old profile in if one
+  slips through anyway rather than breaking the save over it.
+- **Art identity is not plot.** `playerVisual`, `artStyle`, `preparedVisuals` and `encounteredNpcs`
+  are carried over untouched, and `authorCanon.originalOutline` stays as provenance.
+- **The instruction is never stored.** It reaches the two model calls and nothing else: not
+  `session.json`, not a node, not the story blob, not the job view, not the idempotency fingerprint
+  (which is `(sessionId, nodeId, expectedStateVersion)`). The only trace a rewrite leaves is the
+  revised framework. `StoryRestructurePrivacyTest` greps the whole save to prove it, and
+  `MockLlmClient` paraphrases rather than pasting the player's words into canon.
+- **Same three phases as `choose`.** The monitor is never held across a model call. Phase 3 restores
+  the anchor's parent — which is also what erases the refused scene from `recentScenes` — then
+  assigns the revised story (after the restore, since `restoreNode` reloads the story from the
+  node's hash) and commits through `commitScene`. `GameSession.restructuringJobId` makes a
+  concurrent choose/roll/rewind 409 `restructure_in_progress`; one save rewrites one story at a time.
+- **The refused take survives.** It stays a visited sibling under the same parent with the *old*
+  story hash, so rewinding to it restores the old framework whole. Re-choosing from the parent lands
+  on the rewrite, which sorts later. The die the player already saw is reused, so a rewrite never
+  flips success into failure.
+- **The opening too.** `SceneNode.preState` stores the state the opening was written against — only
+  on the root, since every other node reads its parent's. Saves written before this refuse the
+  opening with a message and can still rewrite any later scene.
+- `CreationMilestones.model` now takes an explicit `[floor, ceiling]` window; the two existing call
+  sites keep their ladders. A restructure uses 10→55 for the framework and 60→92 for the scene.
+- Config: `llm.reasoning.story-restructure` (properties class, template, `ConfigFileTest.KNOWN_KEYS`,
+  `RuntimeSettings`, settings labels).
+- UI: 重塑剧情 in the stage controls and 从这里重塑剧情 on every restorable 剧情回顾 entry; a dialog
+  that becomes its own progress panel and cannot be closed mid-rewrite.
+
+`StoryRestructureTest`, `StoryRestructureConflictTest`, `StoryRestructurePrivacyTest`,
+`StoryRestructureApiTest` and `story/StoryRestructurePlannerTest` cover the splice, the guards, the
+privacy rule and the HTTP surface; `tests/restructure.test.mjs` covers the dialog and the job flow.
+Verified end to end in mock mode on a scratch data directory: framework revised, refused take still
+rewindable, and no trace of the instruction anywhere under `data/`.

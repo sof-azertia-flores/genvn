@@ -260,6 +260,7 @@ export interface ChoiceView {
 export interface AccessView {
   required: boolean;
   granted: boolean;
+  language?: string;
 }
 
 export interface ConfigView {
@@ -268,6 +269,27 @@ export interface ConfigView {
   speculationEnabled: boolean;
   continuationEnabled: boolean;
   imageEnabled: boolean;
+  language?: string;
+}
+
+export type SettingsKind = "STRING" | "SECRET" | "INTEGER" | "NUMBER" | "BOOLEAN" | "LIST";
+
+export interface SettingsField {
+  key: string;
+  group: string;
+  label: string;
+  hint: string;
+  kind: SettingsKind;
+  value: string | number | boolean | string[] | null;
+  secretSet: boolean;
+  restartRequired: boolean;
+}
+
+export interface SettingsView {
+  file: string;
+  fields: SettingsField[];
+  applied: string[];
+  restartPending: string[];
 }
 
 export interface SessionSummary {
@@ -391,6 +413,7 @@ export interface HistoryPage {
     rollSummary: string | null;
     blocks: Block[];
     at: string | null;
+    restorable?: boolean;
   }[];
   nextBeforeSceneId: string | null;
 }

@@ -60,7 +60,7 @@ class SaveDiceMigrationTest {
     }
 
     @Test
-    @DisplayName("an older save gets dice for its current scene, keeps a die the player already saw, and is written back")
+    @DisplayName("an older save gets dice for its current scene, keeps a die the player already saw, moves to the directory format, and is written back")
     void olderSaveIsMigratedOnDiskAndKeepsTheRevealedDie(@TempDir Path dir) throws Exception {
         Stack first = stack(dir, new ScriptedRandom(4, 15));
         GameSession created;
@@ -71,13 +71,17 @@ class SaveDiceMigrationTest {
         } finally {
             first.speculative.close();
         }
-        Path file = dir.resolve("sessions").resolve(created.id + ".json");
+        Path file = dir.resolve("sessions").resolve(created.id).resolve("session.json");
+        Path legacy = dir.resolve("sessions").resolve(created.id + ".json");
         ObjectNode json = (ObjectNode) mapper.readTree(file.toFile());
         assertTrue(json.has("sceneDice"), "a fresh save carries its dice");
-        // Rewrite the file the way an older build left it: no dice, only the revealed pending roll.
+        // Put the save back exactly the way an older build left it: one flat file, and no dice
+        // on the current scene -- only the die the player had already revealed.
         json.remove("sceneDice");
-        mapper.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), json);
-        assertFalse(mapper.readTree(file.toFile()).has("sceneDice"));
+        mapper.writerWithDefaultPrettyPrinter().writeValue(legacy.toFile(), json);
+        Files.delete(file);
+        Files.delete(file.getParent());
+        assertFalse(mapper.readTree(legacy.toFile()).has("sceneDice"));
 
         // A new process: cD would draw 20 if migration cast it, cC must keep the revealed 4.
         Stack second = stack(dir, new ScriptedRandom(20, 20));
@@ -87,6 +91,7 @@ class SaveDiceMigrationTest {
             second.speculative.close();
         }
 
+        assertFalse(Files.exists(legacy), "the same startup pass moved the save into the directory format");
         ObjectNode migrated = (ObjectNode) mapper.readTree(file.toFile());
         assertTrue(migrated.has("sceneDice"), "the migration wrote the dice back to disk");
         assertEquals(4, migrated.get("sceneDice").get("cC").get("d20").asInt(), "the revealed die is the scene's die");

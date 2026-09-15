@@ -59,15 +59,16 @@ public class AssetPipeline implements AssetLookup {
         final Object lock = new Object();
         boolean requeuedAfterLoad = false;
         String persistenceFailure;
+        final Set<String> verifiedCharacterVersions = new java.util.HashSet<>();
 
         Session(AssetManifest manifest) {
             this.manifest = manifest;
         }
     }
 
-    record Task(String sessionId, String assetId, int priority, long seq) implements Comparable<Task> {
+    record Task(String sessionId, String assetId, String recordVersionId, int priority, long seq) implements Comparable<Task> {
         String key() {
-            return sessionId + "/" + assetId;
+            return sessionId + "/" + recordVersionId;
         }
 
         @Override
@@ -88,6 +89,8 @@ public class AssetPipeline implements AssetLookup {
     private final Map<String, Task> queued = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<AssetRecord>> futures = new ConcurrentHashMap<>();
     private final Map<String, Integer> dependencyWaits = new ConcurrentHashMap<>();
+    /** One delayed admission per lifecycle; removal invalidates callbacks from an abandoned route. */
+    private final Map<String, Object> delayedTickets = new ConcurrentHashMap<>();
     /** Sessions whose manifest could not be read, with the reason; they play without pictures. */
     private final Map<String, String> unreadable = new ConcurrentHashMap<>();
     private final List<Thread> workers = new ArrayList<>();
@@ -108,12 +111,21 @@ public class AssetPipeline implements AssetLookup {
             t.setDaemon(true);
             return t;
         });
-        int n = Math.max(1, props.getConcurrency());
-        for (int i = 0; i < n; i++) {
-            Thread t = new Thread(this::workerLoop, "genvn-image-" + (i + 1));
-            t.setDaemon(true);
-            t.start();
-            workers.add(t);
+        syncWorkers();
+    }
+
+    /** Grow or shrink the worker pool to match {@code image.concurrency}. Extra workers exit on their next idle poll. */
+    public void syncWorkers() {
+        synchronized (workers) {
+            workers.removeIf(t -> !t.isAlive());
+            int want = Math.max(1, props.getConcurrency());
+            int have = (int) workers.stream().filter(Thread::isAlive).count();
+            for (int i = have; i < want; i++) {
+                Thread t = new Thread(this::workerLoop, "genvn-image-" + (workers.size() + 1));
+                t.setDaemon(true);
+                t.start();
+                workers.add(t);
+            }
         }
     }
 
@@ -132,14 +144,7 @@ public class AssetPipeline implements AssetLookup {
                 m.style = plan.style();
                 m.styleKey = plan.styleKey();
             }
-            for (AssetSpec spec : plan.specs()) {
-                AssetRecord existing = m.records.get(spec.assetId());
-                if (existing == null) {
-                    m.records.put(spec.assetId(), new AssetRecord(spec));
-                } else {
-                    refreshPromptLocked(existing, spec);
-                }
-            }
+            for (AssetSpec spec : dependencyOrder(plan.specs())) selectVersionLocked(s, spec);
             Set<String> plannedNow = new java.util.HashSet<>();
             for (AssetSpec spec : plan.specs()) plannedNow.add(spec.assetId());
             List<AssetRecord> candidates = m.records.values().stream()
@@ -170,23 +175,180 @@ public class AssetPipeline implements AssetLookup {
         synchronized (s.lock) {
             if (!live(s)) return 0;
             if (s.persistenceFailure != null && !persistLocked(s)) return 0;
-            for (AssetSpec spec : specs) {
-                AssetRecord r = s.manifest.records.computeIfAbsent(spec.assetId(), id -> new AssetRecord(spec));
-                if (r.spec.idlePreparation() && !spec.idlePreparation()) {
-                    // The appearance is now assigned to a canonically introduced person. Keep the
-                    // original image prompt and file; a name/role is not permission to redraw them.
-                    r.spec = r.spec.assignedTo(spec.subjectName(), spec.beatId(), spec.priority());
-                    if (r.status == AssetStatus.QUEUED) reprioritize(sessionId, spec.assetId(), spec.priority());
+            boolean changed = false;
+            for (AssetSpec spec : dependencyOrder(specs)) {
+                PlanningState before = planningState(s.manifest.get(spec.assetId()));
+                AssetRecord r = selectVersionLocked(s, spec);
+                if (r.status == AssetStatus.READY && !store.validate(sessionId, r.fileName)) {
+                    missing(r, "file missing or unreadable");
                 }
-                refreshPromptLocked(r, spec);
                 if (r.status == AssetStatus.PLANNED || r.status == AssetStatus.MISSING) {
-                    if (enqueueLocked(s, r, spec.priority())) queuedNow++;
+                    if (enqueueOrWaitLocked(s, r, spec.priority())) queuedNow++;
                 }
+                changed |= !java.util.Objects.equals(before, planningState(r));
             }
-            s.manifest.touch();
-            persistLocked(s);
+            if (changed) {
+                s.manifest.touch();
+                persistLocked(s);
+            }
         }
         return queuedNow;
+    }
+
+    private static List<AssetSpec> dependencyOrder(List<AssetSpec> specs) {
+        return specs.stream().sorted(Comparator.comparingInt(spec -> spec.dependsOn() == null ? 0 : 1)).toList();
+    }
+
+    private record PlanningState(String versionId, AssetSpec spec, AssetStatus status, String referenceId,
+                                 String failureReason, String queuedAt, int replacementLimit, boolean referenceUnavailable) {}
+
+    private static PlanningState planningState(AssetRecord record) {
+        return record == null ? null : new PlanningState(record.recordVersionId, record.spec, record.status,
+                record.referenceVersionId, record.failureReason, record.queuedAt, record.replacementAttemptLimit,
+                record.referenceUnavailable);
+    }
+
+    private static String key(String sessionId, AssetRecord record) {
+        return sessionId + "/" + record.recordVersionId;
+    }
+
+    private static boolean isActive(Session session, AssetRecord record) {
+        return session.manifest.get(record.spec.assetId()) == record;
+    }
+
+    private static boolean sameAppearance(AssetRecord record, AssetSpec spec) {
+        return record.spec.kind() == spec.kind() && record.spec.assetId().equals(spec.assetId())
+                && java.util.Objects.equals(record.spec.subjectId(), spec.subjectId())
+                && java.util.Objects.equals(record.spec.appearanceKey(), spec.appearanceKey());
+    }
+
+    /** A logical id selects an appearance lifecycle; prompt wording never selects a new lifecycle. */
+    private AssetRecord selectVersionLocked(Session session, AssetSpec spec) {
+        AssetManifest manifest = session.manifest;
+        if (spec.kind() != AssetKind.BACKGROUND) {
+            for (AssetRecord other : List.copyOf(manifest.records.values())) {
+                if (other.spec.kind() != AssetKind.BACKGROUND
+                        && java.util.Objects.equals(other.spec.subjectId(), spec.subjectId())
+                        && !java.util.Objects.equals(other.spec.appearanceKey(), spec.appearanceKey())) {
+                    deactivateLocked(session, other);
+                }
+            }
+        }
+        AssetRecord current = manifest.get(spec.assetId());
+        AssetRecord selected = current != null && sameAppearance(current, spec) ? current : null;
+        if (selected == null) {
+            selected = manifest.versions.values().stream().filter(r -> sameAppearance(r, spec)).findFirst().orElse(null);
+            if (selected == null) {
+                selected = new AssetRecord(spec);
+                manifest.versions.put(selected.recordVersionId, selected);
+            }
+            if (current != null) deactivateLocked(session, current);
+            manifest.records.put(spec.assetId(), selected);
+        }
+        if (selected.spec.idlePreparation() && !spec.idlePreparation()) {
+            selected.spec = selected.spec.assignedTo(spec.subjectName(), spec.beatId(), spec.priority());
+            if (selected.status == AssetStatus.QUEUED) reprioritize(manifest.sessionId, selected, spec.priority());
+        }
+        refreshPromptLocked(selected, spec);
+        session.verifiedCharacterVersions.add(selected.recordVersionId);
+        referenceLocked(session, selected);
+        return selected;
+    }
+
+    private AssetRecord referenceLocked(Session session, AssetRecord dependent) {
+        if (dependent.spec.dependsOn() == null) return null;
+        if (dependent.referenceVersionId != null) return session.manifest.versions.get(dependent.referenceVersionId);
+        AssetRecord base = session.manifest.get(dependent.spec.dependsOn());
+        if (base == null || !java.util.Objects.equals(base.spec.appearanceKey(), dependent.spec.appearanceKey())) return null;
+        dependent.referenceVersionId = base.recordVersionId;
+        return base;
+    }
+
+    private void deactivateLocked(Session session, AssetRecord record) {
+        session.manifest.records.remove(record.spec.assetId(), record);
+        String key = key(session.manifest.sessionId, record);
+        Task task = queued.remove(key);
+        if (task != null) queue.remove(task);
+        dependencyWaits.remove(key);
+        delayedTickets.remove(key);
+        session.verifiedCharacterVersions.remove(record.recordVersionId);
+        if (record.status == AssetStatus.QUEUED) record.status = AssetStatus.PLANNED;
+        // In-flight calls retain their subscription and can only publish to this archived record.
+        if (record.status != AssetStatus.GENERATING) {
+            CompletableFuture<AssetRecord> future = futures.remove(key);
+            if (future != null) future.cancel(false);
+        }
+    }
+
+    /** Rebind a restored story to its own pictures without removing any archived files or attempts. */
+    public void reconcileCharacterVersions(String sessionId, Map<String, String> desiredKeysBySubject,
+                                           Map<String, String> legacyBaseBindings) {
+        if (forgotten.contains(sessionId) || desiredKeysBySubject == null) return;
+        Session session = session(sessionId);
+        synchronized (session.lock) {
+            if (!live(session)) return;
+            AssetManifest manifest = session.manifest;
+            boolean changed = false;
+            if (legacyBaseBindings != null) {
+                for (AssetRecord base : manifest.versions.values()) {
+                    if (base.spec.kind() != AssetKind.PORTRAIT || base.spec.appearanceKey() != null) continue;
+                    String verified = legacyBaseBindings.get(base.recordVersionId);
+                    if (verified == null) continue;
+                    base.spec = base.spec.withAppearanceKey(verified);
+                    changed = true;
+                    for (AssetRecord dependent : manifest.versions.values()) {
+                        if (dependent.spec.appearanceKey() != null) continue;
+                        if (base.recordVersionId.equals(dependent.referenceVersionId)
+                                || (dependent.referenceVersionId == null && base.spec.assetId().equals(dependent.spec.dependsOn()))) {
+                            dependent.referenceVersionId = base.recordVersionId;
+                            dependent.spec = dependent.spec.withAppearanceKey(verified);
+                        }
+                    }
+                }
+            }
+            for (AssetRecord record : List.copyOf(manifest.records.values())) {
+                if (record.spec.kind() == AssetKind.BACKGROUND) continue;
+                String desired = desiredKeysBySubject.get(record.spec.subjectId());
+                if (desired == null || !desired.equals(record.spec.appearanceKey())) {
+                    deactivateLocked(session, record);
+                    changed = true;
+                }
+            }
+            for (AssetRecord record : manifest.versions.values()) {
+                if (record.spec.kind() == AssetKind.BACKGROUND) continue;
+                String desired = desiredKeysBySubject.get(record.spec.subjectId());
+                if (desired != null && desired.equals(record.spec.appearanceKey())) {
+                    changed |= manifest.records.putIfAbsent(record.spec.assetId(), record) == null;
+                    session.verifiedCharacterVersions.add(record.recordVersionId);
+                }
+            }
+            if (changed) {
+                manifest.touch();
+                persistLocked(session);
+            }
+        }
+    }
+
+    private void missing(AssetRecord record, String reason) {
+        record.status = AssetStatus.MISSING;
+        record.failureReason = reason;
+        record.replacementAttemptLimit = record.attempts + props.getMaxAttempts();
+    }
+
+    /** Keep foreground admission pending when the bounded physical queue is temporarily full. */
+    private boolean enqueueOrWaitLocked(Session session, AssetRecord record, int priority) {
+        // Callers already decided that this failed/paused picture is eligible for one attempt.
+        // Normalize before admission so a full queue retains that grant instead of losing it.
+        if (record.status == AssetStatus.FAILED || record.status == AssetStatus.PAUSED || record.status == AssetStatus.MISSING) {
+            record.status = AssetStatus.PLANNED;
+        }
+        boolean added = enqueueLocked(session, record, priority);
+        if (!added && isActive(session, record) && (record.status == AssetStatus.PLANNED || record.status == AssetStatus.MISSING)
+                && !queued.containsKey(key(session.manifest.sessionId, record))) {
+            record.status = AssetStatus.QUEUED;
+            requeueLater(session.manifest.sessionId, record.recordVersionId, priority, DEPENDENCY_POLL_MILLIS);
+        }
+        return added;
     }
 
     private static boolean promptRefreshable(AssetRecord r) {
@@ -214,9 +376,10 @@ public class AssetPipeline implements AssetLookup {
         int changed = 0;
         synchronized (s.lock) {
             if (!live(s)) return 0;
-            for (AssetSpec spec : specs) {
-                AssetRecord r = s.manifest.get(spec.assetId());
-                if (r != null && refreshPromptLocked(r, spec)) changed++;
+            for (AssetSpec spec : dependencyOrder(specs)) {
+                PlanningState previous = planningState(s.manifest.get(spec.assetId()));
+                AssetRecord r = selectVersionLocked(s, spec);
+                if (!java.util.Objects.equals(previous, planningState(r))) changed++;
             }
             if (changed > 0) {
                 s.manifest.touch();
@@ -239,14 +402,14 @@ public class AssetPipeline implements AssetLookup {
                 if (r == null) continue;
                 int priority = urgent ? 0 : r.spec.priority();
                 switch (r.status) {
-                    case PLANNED, MISSING -> changed |= enqueueLocked(s, r, priority);
+                    case PLANNED, MISSING -> changed |= enqueueOrWaitLocked(s, r, priority);
                     case PAUSED -> {
                         if (budgetAvailableLocked(s)) {
-                            changed |= enqueueLocked(s, r, priority);
+                            changed |= enqueueOrWaitLocked(s, r, priority);
                         }
                     }
                     case QUEUED -> {
-                        if (urgent) reprioritize(sessionId, id, 0);
+                        if (urgent) reprioritize(sessionId, r, 0);
                     }
                     default -> {
                         // READY, GENERATING, FAILED: nothing to do
@@ -285,8 +448,9 @@ public class AssetPipeline implements AssetLookup {
             // Setting this before enqueue ensures even an immediate failure cannot trigger a
             // second automatic provider call. It also survives a process restart mid-request.
             r.manualAttemptLimit = r.attempts + 1;
-            dependencyWaits.remove(sessionId + "/" + assetId);
-            enqueueLocked(s, r, 0);
+            r.replacementAttemptLimit = 0;
+            dependencyWaits.remove(key(sessionId, r));
+            enqueueOrWaitLocked(s, r, 0);
             s.manifest.touch();
             persistLocked(s);
             return status(sessionId);
@@ -362,6 +526,7 @@ public class AssetPipeline implements AssetLookup {
             return true;
         });
         dependencyWaits.keySet().removeIf(key -> key.startsWith(sessionId + "/"));
+        delayedTickets.keySet().removeIf(key -> key.startsWith(sessionId + "/"));
     }
 
     // ------------------------------------------------------------------ reads
@@ -387,18 +552,26 @@ public class AssetPipeline implements AssetLookup {
         }
         synchronized (s.lock) {
             if (!live(s)) return Optional.empty();
-            return Optional.of(mapper.convertValue(s.manifest, AssetManifest.class));
+            AssetManifest copy = mapper.convertValue(s.manifest, AssetManifest.class);
+            copy.normalizeVersions();
+            return Optional.of(copy);
         }
     }
 
     public CompletableFuture<AssetRecord> subscribe(String sessionId, String assetId) {
-        String key = sessionId + "/" + assetId;
-        CompletableFuture<AssetRecord> future = futures.computeIfAbsent(key, k -> new CompletableFuture<>());
         if (forgotten.contains(sessionId)) {
-            futures.remove(key, future);
-            future.cancel(false);
+            CompletableFuture<AssetRecord> cancelled = new CompletableFuture<>();
+            cancelled.cancel(false);
+            return cancelled;
         }
-        return future;
+        Session s = session(sessionId);
+        synchronized (s.lock) {
+            AssetRecord record = s.manifest.get(assetId);
+            if (record == null) return CompletableFuture.failedFuture(new NotFoundException("图片不存在"));
+            CompletableFuture<AssetRecord> future = futures.computeIfAbsent(key(sessionId, record), k -> new CompletableFuture<>());
+            if (!record.isPendingWork() && record.status != AssetStatus.PLANNED) future.complete(record);
+            return future;
+        }
     }
 
     public Map<String, Object> status(String sessionId) {
@@ -461,6 +634,7 @@ public class AssetPipeline implements AssetLookup {
         row.put("attempts", r.attempts);
         row.put("failureReason", r.failureReason);
         row.put("generationVersion", r.generationVersion);
+        row.put("publicationId", r.publicationId);
         row.put("plannedAt", r.plannedAt);
         row.put("queuedAt", r.queuedAt);
         row.put("startedAt", r.startedAt);
@@ -497,6 +671,7 @@ public class AssetPipeline implements AssetLookup {
                 fresh.sessionId = id;
                 return fresh;
             });
+            m.normalizeVersions();
             recover(id, m);
             return new Session(m);
         });
@@ -505,22 +680,26 @@ public class AssetPipeline implements AssetLookup {
             if (!s.requeuedAfterLoad) {
                 s.requeuedAfterLoad = true;
                 List<AssetRecord> waiting = new ArrayList<>();
-                boolean changed = false;
                 for (AssetRecord r : s.manifest.records.values()) {
+                    // Reading status must not start artwork for a route that has not been restored yet.
+                    if (r.spec.kind() != AssetKind.BACKGROUND) {
+                        if (r.status == AssetStatus.QUEUED) r.status = AssetStatus.PLANNED;
+                        continue;
+                    }
                     if (r.status == AssetStatus.QUEUED || r.status == AssetStatus.MISSING) {
                         r.status = AssetStatus.PLANNED; // enqueueLocked flips it back to QUEUED
                         if (!enqueueLocked(s, r, r.spec.priority()) && r.status == AssetStatus.PLANNED) {
                             r.status = AssetStatus.QUEUED;
-                            if (!queued.containsKey(sessionId + "/" + r.spec.assetId())) waiting.add(r);
+                            if (!queued.containsKey(key(sessionId, r))) waiting.add(r);
                         }
-                        changed = true;
                     }
                 }
-                if (changed) {
+                // Persist assigned legacy identities even when there was no work to restore.
+                {
                     s.manifest.touch();
                     if (persistLocked(s)) {
                         for (AssetRecord r : waiting) {
-                            requeueLater(sessionId, r.spec.assetId(), r.spec.priority(), DEPENDENCY_POLL_MILLIS);
+                            requeueLater(sessionId, r.recordVersionId, r.spec.priority(), DEPENDENCY_POLL_MILLIS);
                         }
                     }
                 }
@@ -531,13 +710,12 @@ public class AssetPipeline implements AssetLookup {
 
     /** Restart policy: trust only files that still decode; never resend an unknown-outcome call unboundedly. */
     private void recover(String sessionId, AssetManifest m) {
-        for (AssetRecord r : m.records.values()) {
+        for (AssetRecord r : m.versions.values()) {
             if (r.spec == null) continue;
             switch (r.status) {
                 case READY -> {
                     if (r.fileName == null || !store.validate(sessionId, r.fileName)) {
-                        r.status = AssetStatus.MISSING;
-                        r.failureReason = "file missing or unreadable after restart";
+                        missing(r, "file missing or unreadable after restart");
                     }
                 }
                 case GENERATING -> {
@@ -555,6 +733,8 @@ public class AssetPipeline implements AssetLookup {
                     // PLANNED / QUEUED / FAILED / PAUSED / MISSING carry over as they are
                 }
             }
+            // Archived calls may have been interrupted too; activation must perform fresh queue admission.
+            if (r.spec.kind() != AssetKind.BACKGROUND && r.status == AssetStatus.QUEUED) r.status = AssetStatus.PLANNED;
         }
     }
 
@@ -568,7 +748,8 @@ public class AssetPipeline implements AssetLookup {
     }
 
     private int attemptLimit(AssetRecord record) {
-        return record.manualAttemptLimit > 0 ? record.manualAttemptLimit : props.getMaxAttempts();
+        return Math.max(record.replacementAttemptLimit,
+                record.manualAttemptLimit > 0 ? record.manualAttemptLimit : props.getMaxAttempts());
     }
 
     private String capabilityProblem(AssetSpec spec) {
@@ -583,13 +764,14 @@ public class AssetPipeline implements AssetLookup {
 
     /** Caller holds s.lock. Returns true if a task was actually put on the queue. */
     private boolean enqueueLocked(Session s, AssetRecord r, int priority) {
-        if (!live(s)) return false;
+        if (!live(s) || !isActive(s, r) || r.status == AssetStatus.GENERATING || r.status == AssetStatus.READY) return false;
+        if (r.spec.kind() != AssetKind.BACKGROUND && !s.verifiedCharacterVersions.contains(r.recordVersionId)) return false;
         if (s.persistenceFailure != null) {
             r.status = AssetStatus.PAUSED;
             r.failureReason = s.persistenceFailure;
             return false;
         }
-        String key = s.manifest.sessionId + "/" + r.spec.assetId();
+        String key = key(s.manifest.sessionId, r);
         if (queued.containsKey(key)) return false;
         if (!provider.isEnabled()) {
             r.status = AssetStatus.PAUSED;
@@ -619,7 +801,7 @@ public class AssetPipeline implements AssetLookup {
             log.info("Assets {}: queue full, {} stays planned", s.manifest.sessionId, r.spec.assetId());
             return false;
         }
-        Task task = new Task(s.manifest.sessionId, r.spec.assetId(), priority, seq.incrementAndGet());
+        Task task = new Task(s.manifest.sessionId, r.spec.assetId(), r.recordVersionId, priority, seq.incrementAndGet());
         queued.put(key, task);
         queue.add(task);
         r.status = AssetStatus.QUEUED;
@@ -630,12 +812,12 @@ public class AssetPipeline implements AssetLookup {
         return true;
     }
 
-    private void reprioritize(String sessionId, String assetId, int priority) {
-        String key = sessionId + "/" + assetId;
+    private void reprioritize(String sessionId, AssetRecord r, int priority) {
+        String key = key(sessionId, r);
         Task old = queued.get(key);
         if (old == null || old.priority() <= priority) return;
         if (queue.remove(old)) {
-            Task fresh = new Task(sessionId, assetId, priority, seq.incrementAndGet());
+            Task fresh = new Task(sessionId, r.spec.assetId(), r.recordVersionId, priority, seq.incrementAndGet());
             queued.put(key, fresh);
             queue.add(fresh);
         }
@@ -674,7 +856,7 @@ public class AssetPipeline implements AssetLookup {
                 if (r.status == AssetStatus.QUEUED || r.status == AssetStatus.PLANNED) {
                     r.status = AssetStatus.PAUSED;
                     r.failureReason = s.persistenceFailure;
-                    complete(s.manifest.sessionId + "/" + r.spec.assetId(), r);
+                    complete(key(s.manifest.sessionId, r), r);
                 }
             }
             log.warn("Assets {}: generation paused because the budget could not be persisted: {}",
@@ -688,21 +870,31 @@ public class AssetPipeline implements AssetLookup {
         if (f != null) f.complete(r);
     }
 
-    private void requeueLater(String sessionId, String assetId, int priority, long delayMillis) {
+    private void requeueLater(String sessionId, String recordVersionId, int priority, long delayMillis) {
         if (!running || forgotten.contains(sessionId)) return;
+        String schedulingKey = sessionId + "/" + recordVersionId;
+        Object ticket = new Object();
+        if (delayedTickets.putIfAbsent(schedulingKey, ticket) != null) return;
         try {
             delayed.schedule(() -> {
-                if (!running || forgotten.contains(sessionId)) return;
+                if (!running || forgotten.contains(sessionId)) {
+                    delayedTickets.remove(schedulingKey, ticket);
+                    return;
+                }
                 Session s = sessions.get(sessionId);
-                if (s == null) return;
+                if (s == null) {
+                    delayedTickets.remove(schedulingKey, ticket);
+                    return;
+                }
                 synchronized (s.lock) {
+                    if (!delayedTickets.remove(schedulingKey, ticket)) return;
                     if (!live(s)) return;
-                    AssetRecord r = s.manifest.get(assetId);
-                    if (r == null || r.status != AssetStatus.QUEUED) return;
+                    AssetRecord r = s.manifest.versions.get(recordVersionId);
+                    if (r == null || !isActive(s, r) || r.status != AssetStatus.QUEUED) return;
                     r.status = AssetStatus.PLANNED;
                     boolean enqueued = enqueueLocked(s, r, priority);
                     boolean waitForCapacity = !enqueued && r.status == AssetStatus.PLANNED
-                            && !queued.containsKey(sessionId + "/" + assetId);
+                            && !queued.containsKey(sessionId + "/" + recordVersionId);
                     if (!enqueued && r.status == AssetStatus.PLANNED) {
                         // A full queue delays admission, not the provider retry itself. Keep this
                         // single retry pending and durable until a slot opens; no attempt is spent.
@@ -710,11 +902,12 @@ public class AssetPipeline implements AssetLookup {
                     }
                     s.manifest.touch();
                     if (persistLocked(s) && waitForCapacity) {
-                        requeueLater(sessionId, assetId, priority, DEPENDENCY_POLL_MILLIS);
+                        requeueLater(sessionId, recordVersionId, priority, DEPENDENCY_POLL_MILLIS);
                     }
                 }
             }, Math.max(1, delayMillis), TimeUnit.MILLISECONDS);
         } catch (RejectedExecutionException e) {
+            delayedTickets.remove(schedulingKey, ticket);
             // Shutdown preserves QUEUED on disk for the next process, without sending a call.
             if (running) throw e;
         }
@@ -724,6 +917,7 @@ public class AssetPipeline implements AssetLookup {
 
     private void workerLoop() {
         while (running) {
+            if (shouldRetireExtraWorker()) return;
             Task task;
             try {
                 task = queue.poll(1, TimeUnit.SECONDS);
@@ -745,6 +939,18 @@ public class AssetPipeline implements AssetLookup {
         }
     }
 
+    private boolean shouldRetireExtraWorker() {
+        int cap = Math.max(1, props.getConcurrency());
+        synchronized (workers) {
+            workers.removeIf(t -> !t.isAlive() && t != Thread.currentThread());
+            if (workers.isEmpty() || Thread.currentThread() == workers.get(0)) return false;
+            long alive = workers.stream().filter(t -> t.isAlive() || t == Thread.currentThread()).count();
+            if (alive <= cap) return false;
+            workers.remove(Thread.currentThread());
+            return true;
+        }
+    }
+
     /** Fill genuinely spare workers with bounded visual-only reserves, keeping calls for play. */
     private void scheduleIdlePreparation() {
         synchronized (idleSchedulingLock) {
@@ -761,8 +967,9 @@ public class AssetPipeline implements AssetLookup {
                             && props.getArcBudget() - session.manifest.budget.arcAttempts - waiting <= IDLE_RESERVED_ATTEMPTS) continue;
                     AssetRecord next = session.manifest.records.values().stream()
                             .filter(record -> record.status == AssetStatus.PLANNED && record.spec.idlePreparation())
+                            .filter(record -> session.verifiedCharacterVersions.contains(record.recordVersionId))
                             .filter(record -> record.spec.dependsOn() == null
-                                    || Optional.ofNullable(session.manifest.get(record.spec.dependsOn()))
+                                    || Optional.ofNullable(referenceLocked(session, record))
                                             .map(base -> base.status == AssetStatus.READY).orElse(false))
                             .min(Comparator.comparingInt(record -> record.spec.priority())).orElse(null);
                     if (next != null && enqueueLocked(session, next, next.spec.priority())) {
@@ -783,10 +990,11 @@ public class AssetPipeline implements AssetLookup {
         String key = task.key();
 
         AssetSpec spec;
+        int publicationSequence;
         synchronized (s.lock) {
             if (!live(s)) return;
-            AssetRecord r = s.manifest.get(task.assetId());
-            if (r == null || r.status != AssetStatus.QUEUED) return;
+            AssetRecord r = s.manifest.versions.get(task.recordVersionId());
+            if (r == null || !isActive(s, r) || r.status != AssetStatus.QUEUED) return;
             spec = r.spec;
         }
 
@@ -798,7 +1006,9 @@ public class AssetPipeline implements AssetLookup {
             AssetRecord base;
             boolean referenceWasReady;
             synchronized (s.lock) {
-                base = s.manifest.get(spec.dependsOn());
+                AssetRecord dependent = s.manifest.versions.get(task.recordVersionId());
+                if (dependent == null || !isActive(s, dependent)) return;
+                base = referenceLocked(s, dependent);
                 referenceWasReady = base != null && base.status == AssetStatus.READY && base.fileName != null;
             }
             if (referenceWasReady) {
@@ -814,21 +1024,29 @@ public class AssetPipeline implements AssetLookup {
                 }
             } else if (base != null && (base.status == AssetStatus.QUEUED || base.status == AssetStatus.GENERATING
                     || base.status == AssetStatus.PLANNED || base.status == AssetStatus.MISSING)) {
-                ensureQueued(sid, List.of(spec.dependsOn()), true);
+                synchronized (s.lock) {
+                    AssetRecord dependent = s.manifest.versions.get(task.recordVersionId());
+                    if (dependent == null || !isActive(s, dependent) || !isActive(s, base)) return;
+                    if (base.status == AssetStatus.PLANNED || base.status == AssetStatus.MISSING) {
+                        enqueueOrWaitLocked(s, base, 0);
+                        s.manifest.touch();
+                        persistLocked(s);
+                    } else if (base.status == AssetStatus.QUEUED) reprioritize(sid, base, 0);
+                }
                 int waits = dependencyWaits.merge(key, 1, Integer::sum);
                 int maxWaits = Math.max(MAX_DEPENDENCY_WAITS,
                         (props.getTimeoutSeconds() * props.getMaxAttempts() + 60) * 2);
                 if (waits <= maxWaits) {
                     synchronized (s.lock) {
-                        AssetRecord r = s.manifest.get(task.assetId());
-                        if (r != null) r.failureReason = "等待基础透明立绘完成：" + spec.dependsOn();
+                        AssetRecord r = s.manifest.versions.get(task.recordVersionId());
+                        if (r != null && isActive(s, r)) r.failureReason = "等待基础透明立绘完成：" + spec.dependsOn();
                     }
-                    requeueLater(sid, task.assetId(), task.priority(), DEPENDENCY_POLL_MILLIS);
+                    requeueLater(sid, task.recordVersionId(), task.priority(), DEPENDENCY_POLL_MILLIS);
                     return;
                 }
             }
             if (reference == null) {
-                pauseDependency(s, key, spec, "基础透明立绘尚不可用，角色卡与姿势不会脱离参考图单独生成", !referenceWasReady);
+                pauseDependency(s, key, task, spec, "基础透明立绘尚不可用，角色卡与姿势不会脱离参考图单独生成", !referenceWasReady);
                 dependencyWaits.remove(key);
                 return;
             }
@@ -838,11 +1056,11 @@ public class AssetPipeline implements AssetLookup {
         // Budget gate and the transition to GENERATING, atomically with the attempt count.
         synchronized (s.lock) {
             if (!live(s)) return;
-            AssetRecord r = s.manifest.get(task.assetId());
-            if (r == null || r.status != AssetStatus.QUEUED) return;
-            if (r.manualAttemptLimit > 0 && r.attempts >= r.manualAttemptLimit) {
+            AssetRecord r = s.manifest.versions.get(task.recordVersionId());
+            if (r == null || !isActive(s, r) || r.status != AssetStatus.QUEUED) return;
+            if (r.attempts >= attemptLimit(r)) {
                 r.status = AssetStatus.FAILED;
-                r.failureReason = "本次手动重新生成已尝试一次；如需继续请再次点击重新生成";
+                r.failureReason = "图片生成次数已达到重试上限；如需继续请点击重新生成";
                 s.manifest.touch();
                 persistLocked(s);
                 complete(key, r);
@@ -904,6 +1122,8 @@ public class AssetPipeline implements AssetLookup {
             s.manifest.budget.arcAttempts++;
             s.manifest.budget.attemptsTotal++;
             r.attempts++;
+            r.publicationSequence++;
+            publicationSequence = r.publicationSequence;
             r.status = AssetStatus.GENERATING;
             r.startedAt = Instant.now().toString();
             r.failureReason = null;
@@ -913,6 +1133,7 @@ public class AssetPipeline implements AssetLookup {
                 s.manifest.budget.arcAttempts--;
                 s.manifest.budget.attemptsTotal--;
                 r.attempts--;
+                r.publicationSequence--;
                 r.status = AssetStatus.PAUSED;
                 r.failureReason = s.persistenceFailure;
                 complete(key, r);
@@ -951,9 +1172,10 @@ public class AssetPipeline implements AssetLookup {
                     log.info("Assets {}: dropping late result for {} (session forgotten)", sid, spec.assetId());
                     return;
                 }
-                AssetStore.Stored stored = store.save(sid, spec.assetId(), result.bytes(), result.mimeType());
-                AssetRecord r = s.manifest.get(task.assetId());
-                if (r == null) return;
+                AssetRecord r = s.manifest.versions.get(task.recordVersionId());
+                if (r == null || r.status != AssetStatus.GENERATING) return;
+                AssetStore.Stored stored = store.saveVersioned(sid, spec.assetId(), r.recordVersionId,
+                        publicationSequence, result.bytes(), result.mimeType());
                 r.fileName = stored.fileName();
                 r.mimeType = stored.mimeType();
                 r.width = stored.width();
@@ -962,7 +1184,10 @@ public class AssetPipeline implements AssetLookup {
                 r.contentHash = stored.contentHash();
                 r.model = result.model();
                 r.provider = provider.describe();
-                r.generationVersion++;
+                r.generationVersion = publicationSequence;
+                r.publicationId = AssetStore.publicationId(r.recordVersionId, r.generationVersion);
+                s.manifest.publications.putIfAbsent(r.publicationId,
+                        new AssetPublication(r.publicationId, spec.assetId(), r.fileName, r.mimeType));
                 r.status = AssetStatus.READY;
                 r.readyAt = Instant.now().toString();
                 r.failureReason = null;
@@ -972,7 +1197,7 @@ public class AssetPipeline implements AssetLookup {
                         r.width, r.height, r.bytes, (System.currentTimeMillis() - started) / 1000, r.attempts,
                         reference != null && provider.supportsEdit() ? "edit" : "generate", provider.describe());
                 complete(key, r);
-                if (published) resumeReferenceDependentsLocked(s, spec.assetId());
+                if (published && isActive(s, r)) resumeReferenceDependentsLocked(s, r.recordVersionId);
             }
         } catch (ImageProviderException e) {
             fail(s, key, task, e.getMessage(), e.isRetryable(), e.retryAfterMillis());
@@ -985,17 +1210,17 @@ public class AssetPipeline implements AssetLookup {
         }
     }
 
-    private void pauseDependency(Session s, String key, AssetSpec spec, String reason, boolean recheckReady) {
+    private void pauseDependency(Session s, String key, Task task, AssetSpec spec, String reason, boolean recheckReady) {
         synchronized (s.lock) {
             if (!live(s)) return;
-            AssetRecord r = s.manifest.get(spec.assetId());
-            if (r == null) return;
-            AssetRecord reference = s.manifest.get(spec.dependsOn());
+            AssetRecord r = s.manifest.versions.get(task.recordVersionId());
+            if (r == null || !isActive(s, r) || r.status != AssetStatus.QUEUED) return;
+            AssetRecord reference = referenceLocked(s, r);
             if (recheckReady && reference != null && reference.status == AssetStatus.READY) {
                 // The base retry may have completed between our earlier check and acquiring
                 // this monitor. Requeue now so its wake-up cannot be lost.
                 r.status = AssetStatus.PLANNED;
-                enqueueLocked(s, r, spec.priority());
+                enqueueOrWaitLocked(s, r, spec.priority());
                 s.manifest.touch();
                 persistLocked(s);
                 return;
@@ -1014,8 +1239,8 @@ public class AssetPipeline implements AssetLookup {
         boolean changed = false;
         for (AssetRecord dependent : session.manifest.records.values()) {
             if (dependent.status == AssetStatus.PAUSED && dependent.referenceUnavailable
-                    && referenceId.equals(dependent.spec.dependsOn())) {
-                enqueueLocked(session, dependent, dependent.spec.priority());
+                    && referenceId.equals(dependent.referenceVersionId)) {
+                enqueueOrWaitLocked(session, dependent, dependent.spec.priority());
                 changed = true; // Budget/capability pauses also deserve a persisted explanation.
             }
         }
@@ -1028,7 +1253,7 @@ public class AssetPipeline implements AssetLookup {
     private void fail(Session s, String key, Task task, String reason, boolean retryable, long retryAfterMillis) {
         synchronized (s.lock) {
             if (!live(s)) return;
-            AssetRecord r = s.manifest.get(task.assetId());
+            AssetRecord r = s.manifest.versions.get(task.recordVersionId());
             if (r == null) return;
             if (s.persistenceFailure != null) {
                 r.status = AssetStatus.PAUSED;
@@ -1040,12 +1265,13 @@ public class AssetPipeline implements AssetLookup {
             if (again) {
                 long backoff = Math.min(30_000L, 2_000L * (1L << Math.max(0, r.attempts - 1)));
                 long delay = Math.max(backoff, retryAfterMillis);
-                r.status = AssetStatus.QUEUED;
+                r.status = isActive(s, r) ? AssetStatus.QUEUED : AssetStatus.PLANNED;
                 r.failureReason = "attempt " + r.attempts + " failed (" + reason + "); retrying in " + delay / 1000 + "s";
                 log.info("Assets {}: {} failed, retry {} of {} in {}ms: {}", s.manifest.sessionId, task.assetId(),
                         r.attempts + 1, props.getMaxAttempts(), delay, reason);
                 s.manifest.touch();
-                if (persistLocked(s)) requeueLater(s.manifest.sessionId, task.assetId(), task.priority(), delay);
+                if (persistLocked(s) && isActive(s, r)) requeueLater(s.manifest.sessionId, task.recordVersionId(), task.priority(), delay);
+                if (!isActive(s, r)) complete(key, r);
             } else {
                 r.status = AssetStatus.FAILED;
                 r.retryable = retryable;
@@ -1062,6 +1288,7 @@ public class AssetPipeline implements AssetLookup {
     @PreDestroy
     public void shutdown() {
         running = false;
+        delayedTickets.clear();
         delayed.shutdownNow();
         for (Thread t : workers) t.interrupt();
     }

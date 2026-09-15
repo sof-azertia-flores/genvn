@@ -41,6 +41,7 @@ public class SpareDesignService implements AutoCloseable {
     private final GameSessionRepository repository;
     private final AssetCoordinator assets;
     private final ObjectMapper mapper;
+    private final GenvnProperties properties;
     private volatile int target;
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
@@ -56,6 +57,7 @@ public class SpareDesignService implements AutoCloseable {
         this.repository = repository;
         this.assets = assets == null ? AssetCoordinator.disabled() : assets;
         this.mapper = mapper;
+        this.properties = properties;
         setTarget(properties.getSpareDesigns());
     }
 
@@ -129,9 +131,9 @@ public class SpareDesignService implements AutoCloseable {
                 story.authorCanon == null ? List.of() : story.authorCanon.facts(),
                 story.bible.premise(), story.bible.tone(), story.bible.themes(),
                 story.bible.hardCanon(), story.bible.softCanon(), places, story.artStyle);
-        return LlmRequest.of(LlmPurpose.SPARE_DESIGNS, Prompts.SPARE_DESIGN_SYSTEM,
+        return LlmRequest.of(LlmPurpose.SPARE_DESIGNS, Prompts.spareDesignSystem(properties.getLanguage()),
                 Prompts.spareDesignUser(needed, setting, established, spares, taken),
-                Map.of("story", story, "count", needed, "takenIds", taken));
+                Map.of("story", story, "count", needed, "takenIds", taken, "language", properties.getLanguage()));
     }
 
     /** Every id that already names somebody or some design; a spare must not collide with any of them. */

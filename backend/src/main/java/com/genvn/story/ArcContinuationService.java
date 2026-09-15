@@ -31,8 +31,7 @@ public class ArcContinuationService {
 
     private final StructuredLlm llm;
     private final ContextRenderer context;
-    private final boolean enabled;
-    private final double threshold;
+    private final GenvnProperties properties;
     private final ObjectMapper snapshots = new ObjectMapper();
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
@@ -44,8 +43,7 @@ public class ArcContinuationService {
     public ArcContinuationService(StructuredLlm llm, ContextRenderer context, GenvnProperties properties) {
         this.llm = llm;
         this.context = context;
-        this.enabled = properties.getContinuation().isEnabled();
-        this.threshold = properties.getContinuation().getThreshold();
+        this.properties = properties;
     }
 
     public void maybePlanNextArc(GameSession session) {
@@ -55,27 +53,37 @@ public class ArcContinuationService {
     public void maybePlanNextArc(GameSession session, Runnable onReady) {
         final LlmRequest request;
         final int sourceArc;
+        final int epoch;
         synchronized (session) {
-            if (!enabled || session.pendingArc != null || session.finished || session.deleted) return;
-            if (session.state.storyProgress.fraction < threshold) return;
-            if (!inFlight.add(session.id)) return;
+            if (!properties.getContinuation().isEnabled() || session.pendingArc != null
+                    || session.finished || session.deleted) return;
+            if (session.state.storyProgress.fraction < properties.getContinuation().getThreshold()) return;
+            epoch = session.continuationEpoch;
+            String flightKey = session.id + ":" + epoch;
+            if (!inFlight.add(flightKey)) return;
             session.continuationPending = true;
             sourceArc = session.state.storyProgress.arcNumber;
             try {
                 request = planningRequest(session);
             } catch (RuntimeException e) {
-                inFlight.remove(session.id);
+                inFlight.remove(flightKey);
                 session.continuationPending = false;
                 log.warn("Could not snapshot session {} for arc planning", session.id, e);
                 return;
             }
         }
         executor.submit(() -> {
+            String flightKey = session.id + ":" + epoch;
             try {
                 ArcOutline outline = llm.call(request, ArcOutline.class, ArcContinuationService::validate).value();
                 synchronized (session) {
-                    if (session.deleted || session.state.storyProgress.arcNumber != sourceArc || session.pendingArc != null) return;
+                    // Epoch (not currentNodeId): the player may walk forward while this
+                    // call runs; a rewind is the thing that must discard the outline.
+                    if (session.deleted || session.continuationEpoch != epoch
+                            || session.state.storyProgress.arcNumber != sourceArc
+                            || session.pendingArc != null) return;
                     session.pendingArc = outline;
+                    session.continuationPending = false;
                     onReady.run();
                     log.info("Session {}: next arc ready ('{}')", session.id, outline.arcTitle());
                 }
@@ -84,8 +92,8 @@ public class ArcContinuationService {
                         session.id, e.getMessage());
             } finally {
                 synchronized (session) {
-                    session.continuationPending = false;
-                    inFlight.remove(session.id);
+                    inFlight.remove(flightKey);
+                    if (session.continuationEpoch == epoch) session.continuationPending = false;
                 }
             }
         });
@@ -103,10 +111,14 @@ public class ArcContinuationService {
             state = session.state.deepCopy(snapshots);
         }
         return LlmRequest.of(LlmPurpose.ARC_CONTINUE,
-                Prompts.ARC_SYSTEM,
+                Prompts.arcSystem(sessionLanguage(session)),
                 Prompts.arcUser(context.renderStoryFoundation(story, state), context.renderGameState(state, story),
                         context.renderPlayedBeats(story)),
-                Map.of("story", story, "state", state));
+                Map.of("story", story, "state", state, "language", sessionLanguage(session)));
+    }
+
+    private String sessionLanguage(GameSession session) {
+        return properties.getLanguage();
     }
 
     /** A continuation is asked for at least this many beats; the prompt asks for 7-10. */

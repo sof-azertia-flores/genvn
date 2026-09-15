@@ -149,7 +149,7 @@ class RuntimeConcurrencyRegressionTest {
             chosen.get(5, TimeUnit.SECONDS);
             assertTrue(deleted.get(5, TimeUnit.SECONDS));
             assertTrue(repository.find(session.id).isEmpty());
-            assertFalse(Files.exists(directory.resolve("sessions").resolve(session.id + ".json")));
+            assertFalse(Files.exists(directory.resolve("sessions").resolve(session.id)));
             assertEquals(0, fixture.cache.size(session.id));
             assertTrue(fixture.speculative.prefetch(session).isEmpty());
             assertEquals(0, fixture.cache.size(session.id), "late callers cannot repopulate a deleted frontier");

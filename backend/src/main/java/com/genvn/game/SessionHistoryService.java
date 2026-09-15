@@ -3,6 +3,9 @@ package com.genvn.game;
 import com.genvn.api.SessionNotFoundException;
 import com.genvn.narrative.Block;
 import com.genvn.persistence.GameSessionRepository;
+import com.genvn.persistence.SceneNode;
+import com.genvn.persistence.SceneTreeStore;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -13,13 +16,20 @@ import java.util.Objects;
 @Service
 public class SessionHistoryService {
     private final GameSessionRepository repository;
+    private final SceneTreeStore tree;
 
     public SessionHistoryService(GameSessionRepository repository) {
+        this(repository, null);
+    }
+
+    @Autowired
+    public SessionHistoryService(GameSessionRepository repository, SceneTreeStore tree) {
         this.repository = repository;
+        this.tree = tree;
     }
 
     public record Entry(String sceneId, String beatId, String choiceText, String rollSummary,
-                        List<Block> blocks, String at) {}
+                        List<Block> blocks, String at, boolean restorable) {}
 
     public record Page(String sessionId, List<Entry> entries, String nextBeforeSceneId) {}
 
@@ -50,10 +60,16 @@ public class SessionHistoryService {
                 int count = i == through
                         ? (int) Math.min(blocks.size(), (long) throughBlockIndex + 1) : blocks.size();
                 entries.add(new Entry(entry.sceneId, entry.beatId, entry.choiceText, entry.rollSummary,
-                        List.copyOf(blocks.subList(0, count)), entry.at));
+                        List.copyOf(blocks.subList(0, count)), entry.at, restorable(session, entry.sceneId)));
             }
             return new Page(session.id, List.copyOf(entries), start > 0 ? history.get(start).sceneId : null);
         }
+    }
+
+    /** A visited node that is not the current head can be rewound to. */
+    private boolean restorable(GameSession session, String sceneId) {
+        if (tree == null || sceneId == null || sceneId.equals(session.currentNodeId)) return false;
+        return tree.readNode(session.id, sceneId).map(SceneNode::restorable).orElse(false);
     }
 
     private static int indexOf(List<GameSession.HistoryEntry> history, String sceneId) {

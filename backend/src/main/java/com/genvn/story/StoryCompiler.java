@@ -12,6 +12,8 @@ import com.genvn.llm.LlmPurpose;
 import com.genvn.llm.LlmRequest;
 import com.genvn.llm.StructuredLlm;
 import com.genvn.prompt.Prompts;
+import com.genvn.config.GenvnProperties;
+import com.genvn.config.UiLanguage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -35,9 +37,15 @@ public class StoryCompiler {
     public static final int MIN_BEATS = 5;
 
     private final StructuredLlm llm;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private GenvnProperties properties;
 
     public StoryCompiler(StructuredLlm llm) {
         this.llm = llm;
+    }
+
+    private String language() {
+        return properties == null ? UiLanguage.ZH : properties.getLanguage();
     }
 
     public record Compiled(CompiledStory story, GameState state, long millis, int repairAttempts) {}
@@ -53,31 +61,43 @@ public class StoryCompiler {
     public Compiled compile(String sessionId, String rawOutline, PlayerCharacter player, String artStyle,
                             SessionService.CreationProgress progress) {
         String outline = sanitize(rawOutline);
-        progress.report("整理故事输入", 4, "故事输入与角色资料已整理，准备编译世界框架。");
+        note(progress, 4, "整理故事输入", "Sorting the story input",
+                "故事输入与角色资料已整理，准备编译世界框架。",
+                "Story input and character notes are ready; compiling the world frame next.");
         log.info("Session {}: compiling story for player '{}' ({} chars of outline)",
                 sessionId, player.name, outline.length());
-        Map<String, Object> mockContext = Map.of(
-                "outline", outline,
-                "playerName", player.name == null ? "" : player.name,
-                "playerBackground", player.background == null ? "" : player.background);
+        Map<String, Object> mockContext = new java.util.LinkedHashMap<>();
+        mockContext.put("outline", outline);
+        mockContext.put("playerName", player.name == null ? "" : player.name);
+        mockContext.put("playerBackground", player.background == null ? "" : player.background);
+        mockContext.put("language", language());
 
         LlmRequest request = LlmRequest.of(LlmPurpose.STORY_COMPILE,
-                Prompts.COMPILER_SYSTEM,
+                Prompts.compilerSystem(language()),
                 Prompts.compilerUser(outline, playerBrief(player)),
                 mockContext);
-        progress.report("准备编译请求", 6, "已准备故事边界、人物资料和结构要求，开始请求故事框架。");
+        note(progress, 6, "准备编译请求", "Preparing the compile request",
+                "已准备故事边界、人物资料和结构要求，开始请求故事框架。",
+                "Story bounds, character notes and structure are ready; requesting the story frame.");
 
         StructuredLlm.Parsed<CompilerResponse> parsed =
-                llm.call(request, CompilerResponse.class, StoryCompiler::validate, CreationMilestones.model(progress, false));
+                llm.call(request, CompilerResponse.class, StoryCompiler::validate, CreationMilestones.model(progress, false, language()));
         CompilerResponse response = parsed.value();
 
         AuthorCanon canon = new AuthorCanon(outline, dedupe(response.authorCanonFacts()));
-        progress.report("确认故事事实", 40, "已整理你指定的故事事实，后续生成将以此为依据。");
+        note(progress, 40, "确认故事事实", "Confirming story facts",
+                "已整理你指定的故事事实，后续生成将以此为依据。",
+                "The facts you stated are recorded; later writing will treat them as canon.");
         CompiledStory story = new CompiledStory(canon, response.bible(), response.spine());
         story.preparedVisuals = new ArrayList<>(response.preparedVisuals());
-        progress.report("建立世界与地点", 42, "世界设定与地点清单已建立。");
-        progress.report("建立人物档案", 44, "已收录故事框架中的人物，准备各自的外貌资料。");
-        progress.report("展开故事节拍", 46, "章节目标与故事节拍已确认，将据此安排后续场景。");
+        note(progress, 42, "建立世界与地点", "Building the world and places",
+                "世界设定与地点清单已建立。", "The setting and location list are in place.");
+        note(progress, 44, "建立人物档案", "Filing the cast",
+                "已收录故事框架中的人物，准备各自的外貌资料。",
+                "People from the story frame are filed; appearance notes come next.");
+        note(progress, 46, "展开故事节拍", "Laying out story beats",
+                "章节目标与故事节拍已确认，将据此安排后续场景。",
+                "Chapter goals and beats are set; later scenes will follow them.");
         story.artStyle = sanitize(artStyle);
         String appearance = player.visualDescription == null ? "" : player.visualDescription.trim();
         String background = player.background == null ? "" : player.background.trim();
@@ -88,9 +108,13 @@ public class StoryCompiler {
                 : appearance + ". Character background: " + background + ". Traits: " + traits;
         story.playerVisual = new NpcProfile(PlayerCharacter.ID, player.name, background, traits,
                 List.of(), List.of(), "Only words explicitly chosen by the player", "player-controlled protagonist", visual);
-        progress.report("准备玩家形象", 48, "已根据你填写的特征建立玩家形象，接下来安排人物与场景图片。");
+        note(progress, 48, "准备玩家形象", "Preparing the player look",
+                "已根据你填写的特征建立玩家形象，接下来安排人物与场景图片。",
+                "Your written details now define the player look; pictures of people and places come next.");
         GameState state = initialState(sessionId, story, player, response);
-        progress.report("建立初始游戏状态", 51, "初始地点、角色属性、关系和待追踪线索已建立。");
+        note(progress, 51, "建立初始游戏状态", "Building the opening game state",
+                "初始地点、角色属性、关系和待追踪线索已建立。",
+                "Opening place, stats, relations and threads to watch are in place.");
         log.info("Session {}: compiled '{}' -- {} canon facts, {} characters, {} locations, {} beats, {} threads ({}s)",
                 sessionId, story.spine.arcTitle(), canon.facts().size(), story.bible.characters().size(),
                 story.bible.locations().size(), story.spine.beats().size(), state.continuityLedger.size(),
@@ -103,26 +127,37 @@ public class StoryCompiler {
         if (r == null) return "empty response";
         if (r.bible() == null) return "missing 'bible'";
         if (r.spine() == null || r.spine().beats().isEmpty()) return "missing 'spine.beats' (need at least one beat)";
-        if (r.bible().locations().isEmpty()) return "'bible.locations' must contain at least one location";
-        if (r.bible().premise() == null || r.bible().premise().isBlank()) return "missing 'bible.premise'";
+        String bibleProblem = validateBibleShape(r.bible());
+        if (bibleProblem != null) return bibleProblem;
         String beatProblem = StorySpine.validateBeats(r.spine().beats(), MIN_BEATS, true);
         if (beatProblem != null) return beatProblem;
-        var locationIds = new HashSet<String>();
-        for (LocationProfile loc : r.bible().locations()) {
-            if (!AssetSpec.safeSubjectId(loc.id())) return "location ids must be unique lowercase slugs of at most 48 characters; use loc_example";
-            if (!locationIds.add(loc.id())) return "duplicate location id '" + loc.id() + "'; every location needs its own id";
-        }
-        var characterIds = new HashSet<String>();
-        for (NpcProfile npc : r.bible().characters()) {
-            if (!AssetSpec.safeSubjectId(npc.id())) return "character ids must be unique lowercase slugs of at most 48 characters; use npc_example";
-            if (PlayerCharacter.ID.equals(npc.id())) return "'player' is reserved for the protagonist; bible.characters is NPCs only";
-            if (!characterIds.add(npc.id())) return "duplicate character id '" + npc.id() + "'; every character needs their own id";
-            if (npc.name() == null || npc.name().isBlank()) return "character '" + npc.id() + "' is missing its 'name'";
-        }
         String preparedProblem = PreparedVisual.validateAll(r.preparedVisuals(), r.bible());
         if (preparedProblem != null) return preparedProblem;
         if (r.authorCanonFacts() == null || r.authorCanonFacts().isEmpty()) {
             return "'authorCanonFacts' must restate what the player actually asserted";
+        }
+        return null;
+    }
+
+    /**
+     * The shape every story bible must have, whether it was compiled at the start or revised
+     * mid-play by a restructure. Returns null when usable.
+     */
+    static String validateBibleShape(StoryBible bible) {
+        if (bible == null) return "missing 'bible'";
+        if (bible.locations().isEmpty()) return "'bible.locations' must contain at least one location";
+        if (bible.premise() == null || bible.premise().isBlank()) return "missing 'bible.premise'";
+        var locationIds = new HashSet<String>();
+        for (LocationProfile loc : bible.locations()) {
+            if (!AssetSpec.safeSubjectId(loc.id())) return "location ids must be unique lowercase slugs of at most 48 characters; use loc_example";
+            if (!locationIds.add(loc.id())) return "duplicate location id '" + loc.id() + "'; every location needs its own id";
+        }
+        var characterIds = new HashSet<String>();
+        for (NpcProfile npc : bible.characters()) {
+            if (!AssetSpec.safeSubjectId(npc.id())) return "character ids must be unique lowercase slugs of at most 48 characters; use npc_example";
+            if (PlayerCharacter.ID.equals(npc.id())) return "'player' is reserved for the protagonist; bible.characters is NPCs only";
+            if (!characterIds.add(npc.id())) return "duplicate character id '" + npc.id() + "'; every character needs their own id";
+            if (npc.name() == null || npc.name().isBlank()) return "character '" + npc.id() + "' is missing its 'name'";
         }
         return null;
     }
@@ -157,6 +192,11 @@ public class StoryCompiler {
             if (n > 6) break;
         }
         return state;
+    }
+
+    private void note(SessionService.CreationProgress progress, int value,
+                      String zhStage, String enStage, String zh, String en) {
+        progress.report(UiLanguage.text(language(), zhStage, enStage), value, UiLanguage.text(language(), zh, en));
     }
 
     private static String playerBrief(PlayerCharacter player) {

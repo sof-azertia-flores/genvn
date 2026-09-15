@@ -53,7 +53,12 @@ test("all session paths encode the supplied identifier", async () => {
   globalThis.fetch = async (path) => { paths.push(path); return Response.json({}); };
   await api.getSession("story ?#");
   await api.debug("story ?#");
-  assert.deepEqual(paths, ["/api/sessions/story%20%3F%23", "/api/sessions/story%20%3F%23/debug"]);
+  await api.rewind("story ?#", "scene_000", "scene_002", 4);
+  assert.deepEqual(paths, [
+    "/api/sessions/story%20%3F%23",
+    "/api/sessions/story%20%3F%23/debug",
+    "/api/sessions/story%20%3F%23/nodes/scene_000/rewind",
+  ]);
 });
 
 test("leaving a session can cancel its pending status read", async () => {
@@ -80,4 +85,19 @@ test("history encodes the visible reading boundary and image retry is an explici
   await api.retryAsset("故事 ?", "pt.player.action");
   assert.equal(calls[1].path, `/api/sessions/${encodeURIComponent("故事 ?")}/assets/pt.player.action/retry`);
   assert.equal(calls[1].init.method, "POST");
+});
+
+test("settings are read and written through /api/settings", async () => {
+  let actual;
+  globalThis.fetch = async (path, init) => {
+    actual = { path, init };
+    return Response.json({ file: "config/application.yml", fields: [], applied: ["llm.model"], restartPending: [] });
+  };
+  await api.settings();
+  assert.equal(actual.path, "/api/settings");
+  const saved = await api.saveSettings({ "llm.model": "gpt-4o" });
+  assert.equal(actual.path, "/api/settings");
+  assert.equal(actual.init.method, "PUT");
+  assert.deepEqual(JSON.parse(actual.init.body), { values: { "llm.model": "gpt-4o" } });
+  assert.deepEqual(saved.applied, ["llm.model"]);
 });

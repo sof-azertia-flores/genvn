@@ -146,4 +146,10 @@ public class BranchCache {
         Map<String, Branch> branches = bySession.get(sessionId);
         return branches == null ? 0 : branches.size();
     }
+
+    /** Snapshot of whatever is currently cached; used to persist finished unused candidates. */
+    public List<Branch> list(String sessionId) {
+        Map<String, Branch> branches = bySession.get(sessionId);
+        return branches == null ? List.of() : List.copyOf(branches.values());
+    }
 }

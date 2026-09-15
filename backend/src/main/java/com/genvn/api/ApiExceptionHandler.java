@@ -51,6 +51,13 @@ public class ApiExceptionHandler {
                 .body(new Dtos.ErrorView("choice_resolving", e.getMessage()));
     }
 
+    @ExceptionHandler(RestructureInProgressException.class)
+    public ResponseEntity<Dtos.ErrorView> restructureInProgress(RestructureInProgressException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .header("Retry-After", "3")
+                .body(new Dtos.ErrorView("restructure_in_progress", e.getMessage()));
+    }
+
     @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
     public ResponseEntity<Dtos.ErrorView> unreadableRequest(Exception e) {
         return ResponseEntity.badRequest().body(new Dtos.ErrorView("invalid_request", "A valid JSON request body is required."));

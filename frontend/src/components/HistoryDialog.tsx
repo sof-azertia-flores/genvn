@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { useT } from "../i18n";
 import type { HistoryPage } from "../types";
 
 interface Props {
@@ -8,6 +9,10 @@ interface Props {
   /** Last completely read block; -1 means no part of this scene has been read yet. */
   throughBlockIndex: number;
   onClose: () => void;
+  onRewind?: (sceneId: string) => void;
+  /** Rewrite the story from this scene onward. Shares rewindBlocked: both mutate the save. */
+  onRestructure?: (sceneId: string, label: string) => void;
+  rewindBlocked?: boolean;
 }
 
 /** Where the reader should land once the next page has rendered. */
@@ -20,7 +25,8 @@ type ScrollPlan =
 const BOTTOM_TOLERANCE = 12;
 
 /** Only asks for canonical history through the reader's current position. */
-export default function HistoryDialog({ sessionId, throughSceneId, throughBlockIndex, onClose }: Props) {
+export default function HistoryDialog({ sessionId, throughSceneId, throughBlockIndex, onClose, onRewind, onRestructure, rewindBlocked }: Props) {
+  const tr = useT();
   const [page, setPage] = useState<HistoryPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +64,7 @@ export default function HistoryDialog({ sessionId, throughSceneId, throughBlockI
         entries: [...result.entries.filter((entry) => !previous.entries.some((seen) => seen.sceneId === entry.sceneId)), ...previous.entries],
       } : result);
     } catch (failure) {
-      if (operation === generation.current) setError(failure instanceof Error ? failure.message : "暂时无法读取剧情回顾。");
+      if (operation === generation.current) setError(failure instanceof Error ? failure.message : tr("historyFailed"));
     } finally {
       if (operation === generation.current) { inFlight.current = false; setLoading(false); }
     }
@@ -111,23 +117,42 @@ export default function HistoryDialog({ sessionId, throughSceneId, throughBlockI
   const entries = page?.entries.filter((entry) => entry.blocks.length > 0 || entry.choiceText || entry.rollSummary) ?? [];
   return <div className={`task-overlay history-overlay ${closing ? "is-closing" : ""}`} onClick={close}>
     <div className="task-dialog history-dialog" ref={panel} role="dialog" aria-modal="true" aria-labelledby="history-title" aria-describedby="history-description" onClick={(event) => event.stopPropagation()}>
-      <header className="task-header"><div><span className="eyebrow">THE PATH YOU HAVE TAKEN</span><h2 id="history-title">剧情回顾</h2></div><button className="dialog-close" ref={closeButton} onClick={close} aria-label="关闭剧情回顾">×</button></header>
-      <p className="task-intro" id="history-description">重读已经走过的情节，留住每一句话与每一次选择。</p>
-      <div className="history-body" ref={body} tabIndex={0} aria-label="已读剧情">
-        {page?.nextBeforeSceneId && <button className="history-earlier" disabled={loading} onClick={() => void load(page.nextBeforeSceneId ?? undefined)}>{loading ? "正在翻阅…" : "更早的剧情 ↑"}</button>}
-        {error && <div className="queue-notice" role="alert">{error}<button className="icon-btn" disabled={loading} onClick={() => void load(page?.nextBeforeSceneId ?? undefined)}>重试读取</button></div>}
-        {loading && !page && <p className="queue-empty" role="status">正在翻开故事记录…</p>}
-        {!loading && !error && entries.length === 0 && <div className="queue-empty"><span>☷</span><p>读完第一段文字后，它就会留在这里。</p></div>}
+      <header className="task-header"><div><span className="eyebrow">THE PATH YOU HAVE TAKEN</span><h2 id="history-title">{tr("history")}</h2></div><button className="dialog-close" ref={closeButton} onClick={close} aria-label={tr("historyClose")}>×</button></header>
+      <p className="task-intro" id="history-description">{tr("historyIntro")}</p>
+      <div className="history-body" ref={body} tabIndex={0} aria-label={tr("historyAria")}>
+        {page?.nextBeforeSceneId && <button className="history-earlier" disabled={loading} onClick={() => void load(page.nextBeforeSceneId ?? undefined)}>{loading ? tr("historyPaging") : tr("historyEarlier")}</button>}
+        {error && <div className="queue-notice" role="alert">{error}<button className="icon-btn" disabled={loading} onClick={() => void load(page?.nextBeforeSceneId ?? undefined)}>{tr("historyRetry")}</button></div>}
+        {loading && !page && <p className="queue-empty" role="status">{tr("historyOpening")}</p>}
+        {!loading && !error && entries.length === 0 && <div className="queue-empty"><span>☷</span><p>{tr("historyEmpty")}</p></div>}
         {entries.map((entry) => <article className="history-scene" key={entry.sceneId}>
-          <div className="history-divider"><i /><span>故事片段</span><i /></div>
-          {entry.choiceText && <div className="history-choice"><span>你的选择</span><p>{entry.choiceText}</p>{entry.rollSummary && <small>🎲 {entry.rollSummary}</small>}</div>}
+          <div className="history-divider"><i /><span>{tr("historyDivider")}</span><i /></div>
+          {entry.choiceText && <div className="history-choice"><span>{tr("yourChoice")}</span><p>{entry.choiceText}</p>{entry.rollSummary && <small>🎲 {entry.rollSummary}</small>}</div>}
           {entry.blocks.map((block, index) => <div key={`${entry.sceneId}:${index}`} className={`history-line ${block.type}`}>
-            {block.type === "dialogue" && <strong>{block.speakerName ?? (block.speakerId === "player" ? "你" : "人物")}</strong>}
+            {block.type === "dialogue" && <strong>{block.speakerName ?? (block.speakerId === "player" ? tr("you") : tr("someone"))}</strong>}
             <p>{block.text}</p>
           </div>)}
+          {entry.restorable && (onRewind || onRestructure) && (
+            <div className="history-actions">
+              {onRewind && <button className="history-rewind" disabled={rewindBlocked} title={rewindBlocked ? tr("rewindBlocked") : undefined}
+                onClick={(event) => { event.stopPropagation(); if (!rewindBlocked) onRewind(entry.sceneId); }}>
+                {tr("rewindHere")}
+              </button>}
+              {onRestructure && <button className="history-restructure" disabled={rewindBlocked}
+                title={rewindBlocked ? tr("restructureBlocked") : undefined}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (rewindBlocked) return;
+                  // The opening line is the clearest label the recap has for a scene.
+                  const label = entry.choiceText || entry.blocks[0]?.text || entry.sceneId;
+                  onRestructure(entry.sceneId, label.length > 28 ? `${label.slice(0, 28)}…` : label);
+                }}>
+                {tr("restructureHere")}
+              </button>}
+            </div>
+          )}
         </article>)}
       </div>
-      <footer className="task-footer"><span>只记录已经读过的故事，未来仍然留白。</span><button onClick={close}>返回此刻 ↗</button></footer>
+      <footer className="task-footer"><span>{tr("historyFoot")}</span><button onClick={close}>{tr("backToNow")}</button></footer>
     </div>
   </div>;
 }

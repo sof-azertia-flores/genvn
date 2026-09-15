@@ -34,7 +34,49 @@ public class AssetManifest {
     public int version = 0;
     public String updatedAt;
     public Map<String, AssetRecord> records = new LinkedHashMap<>();
+    /** All appearance lifecycles, including records not active on the current story route. */
+    public Map<String, AssetRecord> versions = new LinkedHashMap<>();
+    public Map<String, AssetPublication> publications = new LinkedHashMap<>();
     public Budget budget = new Budget();
+
+    /** JSON duplicates shared objects; restore identity before any scheduler mutates a record. */
+    public void normalizeVersions() {
+        if (records == null) records = new LinkedHashMap<>();
+        if (versions == null) versions = new LinkedHashMap<>();
+        if (publications == null) publications = new LinkedHashMap<>();
+        if (budget == null) budget = new Budget();
+        Map<String, AssetRecord> normalized = new LinkedHashMap<>();
+        for (AssetRecord record : versions.values()) register(normalized, record);
+        // Active copies are authoritative if reading a manifest written before normalization.
+        for (AssetRecord record : records.values()) register(normalized, record);
+        versions = normalized;
+        records.replaceAll((id, record) -> record == null ? null : versions.get(record.recordVersionId));
+        records.values().removeIf(java.util.Objects::isNull);
+        for (AssetRecord record : versions.values()) {
+            record.publicationSequence = Math.max(record.publicationSequence, record.generationVersion);
+            if (record.referenceVersionId == null && record.spec.dependsOn() != null) {
+                AssetRecord base = records.get(record.spec.dependsOn());
+                if (base != null && java.util.Objects.equals(base.spec.appearanceKey(), record.spec.appearanceKey())) {
+                    record.referenceVersionId = base.recordVersionId;
+                }
+            }
+            if (record.fileName != null) {
+                if (record.publicationId == null) {
+                    record.publicationId = "legacy_" + record.recordVersionId + "_" + Math.max(1, record.generationVersion);
+                }
+                publications.putIfAbsent(record.publicationId, new AssetPublication(record.publicationId,
+                        record.spec.assetId(), record.fileName, record.mimeType));
+            }
+        }
+    }
+
+    private static void register(Map<String, AssetRecord> records, AssetRecord record) {
+        if (record == null || record.spec == null) return;
+        if (record.recordVersionId == null || record.recordVersionId.isBlank()) {
+            record.recordVersionId = java.util.UUID.randomUUID().toString().replace("-", "");
+        }
+        records.put(record.recordVersionId, record);
+    }
 
     public void touch() {
         version++;

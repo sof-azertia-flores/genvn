@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class FileGameSessionRepositoryTest {
 
@@ -213,29 +214,115 @@ class FileGameSessionRepositoryTest {
     }
 
     @Test
-    void failedDiskDeletionKeepsTheLiveSessionPlayable() throws Exception {
+    void failedDiskDeletionChangesNothingAndKeepsTheLiveSessionPlayable() throws Exception {
         FileGameSessionRepository repository = new FileGameSessionRepository(new ObjectMapper(), properties());
         GameSession session = session("kept");
+        session.sceneCounter = 2;
         repository.save(session);
-        Path path = savePath(session.id);
-        Files.delete(path);
-        Files.createDirectory(path);
-        Path blocker = path.resolve("prevents-directory-deletion");
-        Files.writeString(blocker, "test fixture");
+        byte[] saved = Files.readAllBytes(savePath(session.id));
 
-        assertFalse(repository.delete(session.id));
-        assertFalse(session.deleted);
-        assertSame(session, repository.find(session.id).orElseThrow());
-        assertEquals(List.of(session.id), repository.list().stream().map(s -> s.id()).toList());
+        // A save directory is renamed out of the way before anything is unlinked, so a save
+        // root that refuses the rename must leave the save exactly as it was.
+        assumeTrue(sessions().toFile().setWritable(false), "needs a filesystem that honours read-only directories");
+        try {
+            assertFalse(repository.delete(session.id));
+            assertFalse(session.deleted);
+            assertSame(session, repository.find(session.id).orElseThrow());
+            assertEquals(List.of(session.id), repository.list().stream().map(s -> s.id()).toList());
+            assertArrayEquals(saved, Files.readAllBytes(savePath(session.id)),
+                    "a delete that could not start must not remove part of the save");
+        } finally {
+            assertTrue(sessions().toFile().setWritable(true));
+        }
 
-        Files.delete(blocker);
-        Files.delete(path);
         session.sceneCounter = 3;
         repository.save(session);
         assertTrue(session.saveHealthy);
         assertEquals(3, new FileGameSessionRepository(new ObjectMapper(), properties())
                 .find(session.id).orElseThrow().sceneCounter);
-        assertFalse(new ObjectMapper().readTree(path.toFile()).has("deleted"));
+        assertFalse(new ObjectMapper().readTree(savePath(session.id).toFile()).has("deleted"));
+        assertOnlySaveExists(session.id);
+    }
+
+    @Test
+    void deletingASaveRemovesItsWholeDirectory() throws Exception {
+        FileGameSessionRepository repository = new FileGameSessionRepository(new ObjectMapper(), properties());
+        GameSession session = session("tree");
+        repository.save(session);
+        // Stand in for the scene tree that lives beside session.json.
+        Path nodes = sessions().resolve(session.id).resolve("nodes");
+        Files.createDirectories(nodes);
+        Files.writeString(nodes.resolve("scene_000.json"), "{}");
+
+        assertTrue(repository.delete(session.id));
+        assertFalse(Files.exists(sessions().resolve(session.id)));
+        assertTrue(repository.find(session.id).isEmpty());
+        try (var entries = Files.list(sessions())) {
+            assertEquals(List.of(), entries.map(p -> p.getFileName().toString()).toList(),
+                    "no leftovers, visible or hidden");
+        }
+    }
+
+    @Test
+    void aSaveFromAnEarlierVersionStillLoadsAndTheNextSaveMigratesIt() throws Exception {
+        GenvnProperties properties = properties();
+        Files.createDirectories(sessions());
+        GameSession original = session("legacy");
+        original.sceneCounter = 11;
+        new ObjectMapper().writerWithDefaultPrettyPrinter().writeValue(legacyPath("legacy").toFile(), original);
+
+        FileGameSessionRepository repository = new FileGameSessionRepository(new ObjectMapper(), properties);
+        assertTrue(repository.hasLegacyLayout("legacy"));
+        assertEquals(List.of("legacy"), repository.list().stream().map(s -> s.id()).toList(),
+                "an old single-file save is still offered on the start screen");
+        GameSession loaded = repository.find("legacy").orElseThrow();
+        assertEquals(11, loaded.sceneCounter, "nothing is lost reading the old format");
+
+        loaded.sceneCounter = 12;
+        repository.save(loaded);
+        assertFalse(repository.hasLegacyLayout("legacy"), "the old flat file is gone");
+        assertFalse(Files.exists(legacyPath("legacy")));
+        assertOnlySaveExists("legacy");
+        assertEquals(12, new FileGameSessionRepository(new ObjectMapper(), properties)
+                .find("legacy").orElseThrow().sceneCounter);
+    }
+
+    @Test
+    void aLeftoverLegacyPathThatCannotBeDeletedMustNotDropTheDirectorySave() throws Exception {
+        FileGameSessionRepository repository = new FileGameSessionRepository(new ObjectMapper(), properties());
+        GameSession session = session("mixed");
+        session.sceneCounter = 10;
+        repository.save(session);
+
+        Path leftover = legacyPath("mixed");
+        Files.createDirectories(leftover);
+        Files.writeString(leftover.resolve("stuck"), "an undeletable leftover");
+
+        assertFalse(repository.delete(session.id), "the leftover must fail closed");
+        assertFalse(session.deleted);
+        assertEquals(10, new FileGameSessionRepository(new ObjectMapper(), properties())
+                .find(session.id).orElseThrow().sceneCounter, "the latest directory save must still load");
+    }
+
+    @Test
+    void aSessionIdThatIsNotASessionIdCanNeverReachTheFilesystem() throws Exception {
+        Files.createDirectories(sessions());
+        Path outsider = data.resolve("outside.json");
+        new ObjectMapper().writeValue(outsider.toFile(), session("outside"));
+        FileGameSessionRepository repository = new FileGameSessionRepository(new ObjectMapper(), properties());
+
+        for (String id : List.of("../outside", "..", ".", "", "a/b", "a\\b", ".hidden", "x".repeat(65))) {
+            assertTrue(repository.find(id).isEmpty(), "must not read through id '" + id + "'");
+            assertFalse(repository.delete(id), "must not delete through id '" + id + "'");
+        }
+        assertTrue(Files.exists(outsider), "a save outside the save root is untouched");
+
+        GameSession bad = session("../escape");
+        repository.save(bad);
+        assertFalse(bad.saveHealthy, "an unusable id is reported as unsaved rather than written anywhere");
+        try (var entries = Files.list(sessions())) {
+            assertEquals(List.of(), entries.map(p -> p.getFileName().toString()).toList());
+        }
     }
 
     private GenvnProperties properties() {
@@ -251,13 +338,26 @@ class FileGameSessionRepositoryTest {
         return session;
     }
 
-    private Path savePath(String id) {
-        return data.resolve("sessions").resolve(id + ".json");
+    private Path sessions() {
+        return data.resolve("sessions");
     }
 
+    private Path savePath(String id) {
+        return sessions().resolve(id).resolve("session.json");
+    }
+
+    /** Where a save written by an earlier version of the engine lives. */
+    private Path legacyPath(String id) {
+        return sessions().resolve(id + ".json");
+    }
+
+    /** The save root holds exactly this save, and its directory holds exactly session.json. */
     private void assertOnlySaveExists(String id) throws IOException {
-        try (var files = Files.list(data.resolve("sessions"))) {
-            assertEquals(List.of(id + ".json"), files.map(p -> p.getFileName().toString()).sorted().toList());
+        try (var entries = Files.list(sessions())) {
+            assertEquals(List.of(id), entries.map(p -> p.getFileName().toString()).sorted().toList());
+        }
+        try (var files = Files.list(sessions().resolve(id))) {
+            assertEquals(List.of("session.json"), files.map(p -> p.getFileName().toString()).sorted().toList());
         }
     }
 

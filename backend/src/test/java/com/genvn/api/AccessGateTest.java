@@ -67,9 +67,10 @@ class AccessGateTest {
     void openGate() throws Exception {
         MockMvc mvc = app(AccessGate.open());
         mvc.perform(get("/api/access")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.required").value(false)).andExpect(jsonPath("$.granted").value(true));
+                .andExpect(jsonPath("$.required").value(false)).andExpect(jsonPath("$.granted").value(true))
+                .andExpect(jsonPath("$.language").value("zh"));
         mvc.perform(get("/api/sessions/s1/assets")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.assets[0].url").value("/api/assets/s1/bg.hall?v=2"));
+                .andExpect(jsonPath("$.assets[0].url").value("/api/assets/s1/bg.hall"));
         // Picture bytes reach the controller (which has no manifest here) instead of being refused.
         mvc.perform(get("/api/assets/s1/bg.hall")).andExpect(status().isNotFound());
     }
@@ -113,7 +114,7 @@ class AccessGateTest {
         mvc.perform(get("/api/sessions/s1/assets").header(AccessGate.HEADER, KEY).header("Origin", CDN))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", CDN))
-                .andExpect(jsonPath("$.assets[0].url").value("/api/assets/s1/bg.hall?v=2&t=" + token))
+                .andExpect(jsonPath("$.assets[0].url").value("/api/assets/s1/bg.hall?t=" + token))
                 .andExpect(jsonPath("$.assets[0].url").value(not(containsString(KEY))));
     }
 

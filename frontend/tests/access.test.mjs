@@ -69,7 +69,7 @@ test("the key screen keeps an accepted key, drops a refused one, and reports a b
   const input = () => nodes(ui.tree, (n) => n.type === "input")[0];
   const form = () => nodes(ui.tree, (n) => n.type === "form")[0];
   const alert = () => nodes(ui.tree, (n) => n.props?.role === "alert")[0];
-  const button = () => nodes(ui.tree, (n) => n.type === "button")[0];
+  const button = () => nodes(ui.tree, (n) => n.type === "button" && n.props?.type === "submit")[0];
   assert.equal(alert(), undefined);
   assert.equal(button().props.disabled, true, "nothing typed, nothing to submit");
 
