@@ -796,7 +796,7 @@ export default function App() {
       {showRestructure && <RestructureDialog
         anchorLabel={restructureAnchor?.label ?? null}
         canRestructure={Boolean(restructureAnchor)}
-        job={restructureJob.job} running={restructureJob.running} error={restructureJob.error}
+        job={restructureJob.job} running={restructureJob.running} canRetry={restructureJob.canRetry} error={restructureJob.error}
         onSubmit={submitRestructure} onRetry={restructureJob.retry}
         onClose={() => { setShowRestructure(false); setRestructureAnchor(null); restructureJob.reset(); }} />}
 

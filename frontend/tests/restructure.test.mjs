@@ -249,3 +249,111 @@ test("while the rewrite runs the dialog shows the log and cannot be closed by mi
   assert.equal(closed, 0, "closing mid-rewrite would only hide work that keeps running");
   ui.unmount();
 });
+
+test("a paused progress reader offers GET-only recovery while the rewrite may still be running", async () => {
+  let posts = 0;
+  let unavailable = true;
+  const reads = [];
+  const { ui, start } = await app({
+    restructure: async () => { posts++; return job("RUNNING"); },
+    restructureJob: async (id) => {
+      reads.push(id);
+      if (unavailable) throw new Error("temporary connection failure");
+      return job("READY");
+    },
+    getSession: async () => base(),
+  });
+  await start();
+  byClassPrefix(ui, "icon-btn restructure-trigger")[0].props.onClick(); await flush();
+  dialog(ui).props.onSubmit("换一个对手"); await flush();
+  await ui.advance(8100);
+
+  const stopped = dialog(ui).props;
+  assert.equal(reads.length, 3, "automatic polling stops after three transient failures");
+  assert.equal(stopped.job.status, "RUNNING", "connection loss never invents a server failure");
+  assert.equal(stopped.running, true, "a server operation with an unknown outcome still blocks dismissal");
+  assert.equal(stopped.canRetry, true, "a stopped reader has a recovery path independent of server status");
+  assert.match(stopped.error, /重试读取进度/);
+
+  const panel = harness("components/RestructureDialog.tsx");
+  panel.render(stopped); await flush();
+  assert.equal(byClass(panel, "dialog-close")[0].props.disabled, true);
+  const retry = nodes(panel.tree, (node) => node.type === "button" && node.props?.children === "重试读取进度")[0];
+  assert.ok(retry, "the actual progress dialog exposes the action to the player");
+  unavailable = false;
+  retry.props.onClick();
+  retry.props.onClick();
+  await flush();
+
+  assert.equal(posts, 1, "recovering a reader never resubmits the rewrite");
+  assert.deepEqual(reads, ["job-1", "job-1", "job-1", "job-1"], "rapid retries read the same job only once");
+  assert.equal(dialog(ui), undefined, "a recovered READY result is adopted and closes progress");
+  panel.unmount();
+  ui.unmount();
+});
+
+test("a READY job whose updated save failed to load can be recovered without another rewrite", async () => {
+  let posts = 0;
+  let loads = 0;
+  const reads = [];
+  const { ui, start } = await app({
+    restructure: async () => { posts++; return job("READY"); },
+    restructureJob: async (id) => { reads.push(id); return job("READY"); },
+    getSession: async () => {
+      if (++loads === 1) throw new Error("save response was interrupted");
+      return base();
+    },
+  });
+  await start();
+  byClassPrefix(ui, "icon-btn restructure-trigger")[0].props.onClick(); await flush();
+  dialog(ui).props.onSubmit("换一个对手"); await flush();
+
+  const stopped = dialog(ui).props;
+  assert.equal(stopped.job.status, "READY");
+  assert.equal(stopped.running, false, "the server job is already settled");
+  assert.equal(stopped.canRetry, true, "READY is not mistaken for a successfully adopted save");
+  assert.equal(stopped.error, "save response was interrupted");
+  const panel = harness("components/RestructureDialog.tsx");
+  panel.render(stopped); await flush();
+  const retry = nodes(panel.tree, (node) => node.type === "button" && node.props?.children === "重试读取进度")[0];
+  assert.ok(retry, "the READY recovery action is visible too");
+  retry.props.onClick(); await flush();
+
+  assert.equal(posts, 1);
+  assert.deepEqual(reads, ["job-1"]);
+  assert.equal(loads, 2);
+  assert.equal(dialog(ui), undefined);
+  panel.unmount();
+  ui.unmount();
+});
+
+test("Escape follows a rewrite from the editable dialog through running and settled states", async () => {
+  let closed = 0;
+  const ui = harness("components/RestructureDialog.tsx");
+  const props = { anchorLabel: null, canRestructure: true, job: null, running: false, error: null,
+    onSubmit() {}, onRetry() {}, onClose: () => { closed++; } };
+  ui.render(props); await flush();
+  ui.render({ ...props, job: job("RUNNING"), running: true }); await flush();
+  const escape = () => ui.emit("keydown", { key: "Escape", preventDefault() {}, stopPropagation() {} });
+  escape(); await flush(); await ui.advance(200);
+  assert.equal(closed, 0, "the listener cannot retain running=false from the compose screen");
+  assert.ok(!ui.tree.props.className.includes("is-closing"));
+
+  ui.render({ ...props, job: job("FAILED"), running: false }); await flush();
+  escape(); await flush(); await ui.advance(200);
+  assert.equal(closed, 1, "a settled job can be dismissed with Escape");
+  ui.unmount();
+});
+
+test("Escape also closes a dialog first mounted with a running job after it settles", async () => {
+  let closed = 0;
+  const ui = harness("components/RestructureDialog.tsx");
+  const props = { anchorLabel: null, canRestructure: true, job: job("RUNNING"), running: true, error: null,
+    onSubmit() {}, onRetry() {}, onClose: () => { closed++; } };
+  ui.render(props); await flush();
+  ui.render({ ...props, job: job("READY"), running: false }); await flush();
+  ui.emit("keydown", { key: "Escape", preventDefault() {}, stopPropagation() {} });
+  await flush(); await ui.advance(200);
+  assert.equal(closed, 1, "the listener cannot retain running=true from restored progress");
+  ui.unmount();
+});

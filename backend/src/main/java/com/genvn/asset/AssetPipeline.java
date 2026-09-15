@@ -60,9 +60,16 @@ public class AssetPipeline implements AssetLookup {
         boolean requeuedAfterLoad = false;
         String persistenceFailure;
         final Set<String> verifiedCharacterVersions = new java.util.HashSet<>();
+        /** Previously admitted work waits for restored-story verification, without losing its durable QUEUED state. */
+        final Set<String> recoveredCharacterWork = new java.util.HashSet<>();
 
         Session(AssetManifest manifest) {
             this.manifest = manifest;
+            for (AssetRecord record : manifest.records.values()) {
+                if (record.spec.kind() != AssetKind.BACKGROUND && record.status == AssetStatus.QUEUED) {
+                    recoveredCharacterWork.add(record.recordVersionId);
+                }
+            }
         }
     }
 
@@ -272,6 +279,7 @@ public class AssetPipeline implements AssetLookup {
         dependencyWaits.remove(key);
         delayedTickets.remove(key);
         session.verifiedCharacterVersions.remove(record.recordVersionId);
+        session.recoveredCharacterWork.remove(record.recordVersionId);
         if (record.status == AssetStatus.QUEUED) record.status = AssetStatus.PLANNED;
         // In-flight calls retain their subscription and can only publish to this archived record.
         if (record.status != AssetStatus.GENERATING) {
@@ -320,6 +328,17 @@ public class AssetPipeline implements AssetLookup {
                 if (desired != null && desired.equals(record.spec.appearanceKey())) {
                     changed |= manifest.records.putIfAbsent(record.spec.assetId(), record) == null;
                     session.verifiedCharacterVersions.add(record.recordVersionId);
+                }
+            }
+            for (AssetRecord record : manifest.records.values()) {
+                if (!session.verifiedCharacterVersions.contains(record.recordVersionId)
+                        || !session.recoveredCharacterWork.remove(record.recordVersionId)) continue;
+                if (record.status == AssetStatus.QUEUED) {
+                    // This grant predates the restart. Resume it once, after the entire reference
+                    // chain is verified, retaining attempts and durable waiting when the queue is full.
+                    record.status = AssetStatus.PLANNED;
+                    enqueueOrWaitLocked(session, record, record.spec.priority());
+                    changed = true;
                 }
             }
             if (changed) {
@@ -682,10 +701,7 @@ public class AssetPipeline implements AssetLookup {
                 List<AssetRecord> waiting = new ArrayList<>();
                 for (AssetRecord r : s.manifest.records.values()) {
                     // Reading status must not start artwork for a route that has not been restored yet.
-                    if (r.spec.kind() != AssetKind.BACKGROUND) {
-                        if (r.status == AssetStatus.QUEUED) r.status = AssetStatus.PLANNED;
-                        continue;
-                    }
+                    if (r.spec.kind() != AssetKind.BACKGROUND) continue;
                     if (r.status == AssetStatus.QUEUED || r.status == AssetStatus.MISSING) {
                         r.status = AssetStatus.PLANNED; // enqueueLocked flips it back to QUEUED
                         if (!enqueueLocked(s, r, r.spec.priority()) && r.status == AssetStatus.PLANNED) {
@@ -733,8 +749,10 @@ public class AssetPipeline implements AssetLookup {
                     // PLANNED / QUEUED / FAILED / PAUSED / MISSING carry over as they are
                 }
             }
-            // Archived calls may have been interrupted too; activation must perform fresh queue admission.
-            if (r.spec.kind() != AssetKind.BACKGROUND && r.status == AssetStatus.QUEUED) r.status = AssetStatus.PLANNED;
+            // Archived calls need fresh admission; current character work keeps its durable grant
+            // but cannot run until reconciliation verifies its appearance against the restored story.
+            if (r.spec.kind() != AssetKind.BACKGROUND && r.status == AssetStatus.QUEUED
+                    && m.get(r.spec.assetId()) != r) r.status = AssetStatus.PLANNED;
         }
     }
 

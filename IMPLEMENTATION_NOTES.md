@@ -17,7 +17,7 @@ Implementation history, current behavior, and validation, including the visual a
 | P0.7 | Canonical state really changes | **done** — inventory, flags, relations, location, HP, conditions, beats, threads |
 | P0.8 | One-step speculative generation | **done** — one candidate per choice; a check's die is cast ahead and sealed |
 | P0.9 | Invalid LLM output never crashes the app | **done** — repair loop, local normalisation, clean 502 |
-| P0.10 | Actually built, run and tested | **done** — 302 backend tests, 105 frontend tests, plus browser play-throughs |
+| P0.10 | Actually built, run and tested | **done** — 311 backend tests, 109 frontend tests, plus browser play-throughs |
 
 P1 also landed: **Story Arc Continuation** (a second arc is planned in the background and taken up
 when the spine runs out), **file save** after every commit, and a save list on the start screen.
@@ -175,7 +175,7 @@ against a 12-op allow-list.
 
 ---
 
-## Tests (302, `./gradlew test`)
+## Tests (311, `./gradlew test`)
 
 The three correctness cases from the brief are tested by name:
 
@@ -971,3 +971,36 @@ nobody asked for.
 `tests/theme.test.mjs` covers the absent attribute for the default, persistence and restore, an
 unknown stored value falling back, the app opening in the stored theme, the switcher's contents, and
 the two JS gradients following the theme while staying stable per subject.
+
+## Rewrite continuity and image restart recovery (2026-09-16)
+
+A repeated rewrite now takes its framework from the selected scene's story snapshot. The parent
+still supplies the pre-scene gameplay state and read history, and the original die stays binding.
+This retains earlier revisions without admitting the rejected take as past dialogue or importing
+later sibling revisions. Whole-bible rewrites have a dedicated complete briefing containing every
+registered and encountered NPC and location, including visual descriptions and NPC goals; ordinary
+scene briefings retain their existing profile limits.
+
+Interrupted progress reading now exposes a GET-only recovery action independently of the server's
+running state. It also covers READY jobs whose revised save could not be loaded, and concurrent retry
+clicks share one reader. The dialog's Escape handler checks the current running state, preventing an
+editable dialog from retaining permission to close after submission.
+
+A cold image pipeline retains previously queued current-version character work across status reads
+and restarts. Once the restored story verifies appearance identities, that work resumes exactly once
+through normal bounded admission, dependency handling and counted retries. Archived versions,
+withdrawn routes and plans that were never admitted do not acquire a generation grant.
+
+Validation: 311 backend tests and 87 frontend regression tests, backend bootJar, and the TypeScript /
+Vite production build passed. New regressions cover repeated opening and non-opening rewrites,
+older sibling selection, 45 NPCs / 70 locations, queued future NPCs, a full image queue, reference
+dependencies, archived routes, exhausted attempts and disabled image generation. An isolated browser
+fixture with the real rewrite hook and dialog verified Escape protection and three failed progress
+reads followed by successful recovery: one POST, four GETs and one save load. Model responses were
+simulated and saves were temporary; no real provider or running game service was used.
+
+
+Merge validation (2026-09-16): the combined themes and recovery tree passes 311 backend tests,
+109 frontend regression tests, and the TypeScript / Vite production build. The per-feature
+validation counts above describe the original branch checks; both sets of regression coverage
+are retained in this merged tree.
