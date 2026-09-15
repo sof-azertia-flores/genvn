@@ -777,7 +777,10 @@ public class SessionService {
                 roll = target.roll;
                 outcome = target.outcome == null ? outcomeOf(target.roll) : target.outcome;
             }
-            storySnapshot = storyAt(sessionId, parent == null ? target : parent, session.story);
+            // A rewritten scene is a sibling of the rejected take. Its parent still owns the
+            // old framework, so only the target snapshot retains earlier authorial revisions.
+            // Mechanics and committed prose above deliberately stay at the parent's pre-scene state.
+            storySnapshot = storyAt(sessionId, target, session.story);
             sceneIndex = session.sceneCounter;
             baseSceneId = session.currentScene.sceneId();
             baseVersion = session.state.stateVersion;

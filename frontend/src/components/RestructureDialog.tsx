@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CompilationProgress from "./CompilationProgress";
 import { useT } from "../i18n";
 import type { CreationJobView } from "../types";
@@ -10,6 +10,8 @@ interface Props {
   canRestructure: boolean;
   job: CreationJobView | null;
   running: boolean;
+  /** Progress reading stopped; retry the existing job even if the server may still be busy. */
+  canRetry?: boolean;
   error: string | null;
   onSubmit: (instruction: string) => void;
   onRetry: () => void;
@@ -22,7 +24,7 @@ const MAX_CHARS = 2000;
  * Where the player says what they want the story to become. While the job runs the same dialog
  * becomes its progress panel, so the words they typed and the work they caused stay in one place.
  */
-export default function RestructureDialog({ anchorLabel, canRestructure, job, running, error, onSubmit, onRetry, onClose }: Props) {
+export default function RestructureDialog({ anchorLabel, canRestructure, job, running, canRetry = false, error, onSubmit, onRetry, onClose }: Props) {
   const tr = useT();
   const [instruction, setInstruction] = useState("");
   const [closing, setClosing] = useState(false);
@@ -30,9 +32,11 @@ export default function RestructureDialog({ anchorLabel, canRestructure, job, ru
   const field = useRef<HTMLTextAreaElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const logWindow = useRef<HTMLOListElement>(null);
-  const failed = job?.status === "FAILED";
+  const latestRunning = useRef(running);
+  latestRunning.current = running;
+  // The keyboard listener is installed once, but its guard must follow the live job state.
   // Closing mid-rewrite would only hide it: the job keeps running on the server either way.
-  const close = () => { if (!running) setClosing(true); };
+  const close = useCallback(() => { if (!latestRunning.current) setClosing(true); }, []);
 
   useEffect(() => {
     if (!closing) return;
@@ -62,8 +66,7 @@ export default function RestructureDialog({ anchorLabel, canRestructure, job, ru
     };
     window.addEventListener("keydown", onKey);
     return () => { window.removeEventListener("keydown", onKey); previous?.focus(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [close]);
 
   const ready = canRestructure && !running && instruction.trim().length >= 4;
   const submit = () => { if (ready) onSubmit(instruction.trim()); };
@@ -118,7 +121,7 @@ export default function RestructureDialog({ anchorLabel, canRestructure, job, ru
       <footer className="task-footer">
         <span>{running ? tr("restructureWorking") : tr("restructureWarning")}</span>
         <div className="restructure-actions">
-          {failed && <button className="btn ghost" onClick={onRetry}>{tr("restructureRetry")}</button>}
+          {canRetry && <button className="btn ghost" onClick={onRetry}>{tr("restructureRetry")}</button>}
           {!running && !job && <button className="btn" disabled={!ready} onClick={submit}>{tr("restructureSubmit")}</button>}
           <button onClick={close} disabled={running}>{running ? tr("restructureWorking") : tr("backToNow")}</button>
         </div>

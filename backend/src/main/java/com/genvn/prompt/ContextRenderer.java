@@ -36,6 +36,15 @@ public class ContextRenderer {
     }
 
     public String renderStoryFoundation(CompiledStory story, GameState state) {
+        return renderStoryFoundation(story, state, false);
+    }
+
+    /** A whole-bible revision must see every identity and every field it is asked to return. */
+    public String renderRestructureFoundation(CompiledStory story, GameState state) {
+        return renderStoryFoundation(story, state, true);
+    }
+
+    private String renderStoryFoundation(CompiledStory story, GameState state, boolean complete) {
         StringBuilder sb = new StringBuilder();
         sb.append("## AUTHOR CANON (inviolable -- never contradict, never delete, never reinterpret)\n");
         for (String fact : story.authorCanon.facts()) {
@@ -66,8 +75,9 @@ public class ContextRenderer {
         }
         sb.append("\n### Established characters (do NOT invent new major NPCs unless necessary)\n");
         Set<String> bibleIds = story.bible.characters().stream().map(NpcProfile::id).collect(Collectors.toSet());
-        for (NpcProfile npc : selectedCharacters(story, state)) {
-            if (!bibleIds.contains(npc.id())) continue;
+        List<NpcProfile> characters = complete ? allCharacters(story) : selectedCharacters(story, state);
+        for (NpcProfile npc : characters) {
+            if (!complete && !bibleIds.contains(npc.id())) continue;
             sb.append("- [").append(npc.id()).append("] ").append(npc.name())
               .append(" -- ").append(nz(npc.description()))
               .append(" | personality: ").append(nz(npc.personality()))
@@ -76,9 +86,16 @@ public class ContextRenderer {
             if (!npc.secrets().isEmpty()) {
                 sb.append(" | SECRETS (the NPC knows these, the player does NOT): ").append(join(npc.secrets()));
             }
+            if (complete) {
+                sb.append(" | goals: ").append(join(npc.goals()))
+                  .append(" | appearance: ").append(nz(npc.visualDescription()));
+                if ((state != null && state.characters.containsKey(npc.id())) || !bibleIds.contains(npc.id())) {
+                    sb.append(" | established identity: this id MUST remain in the revised bible");
+                }
+            }
             sb.append('\n');
         }
-        if (story.bible.characters().size() + story.encounteredNpcs.size() > MAX_CHARACTER_PROFILES) {
+        if (!complete && story.bible.characters().size() + story.encounteredNpcs.size() > MAX_CHARACTER_PROFILES) {
             sb.append("Additional established identities remain in the canonical archive. This briefing shows a relevant subset; ")
                     .append("omission never makes an existing character id available for a new person.\n");
         }
@@ -95,11 +112,20 @@ public class ContextRenderer {
         }
 
         sb.append("\n### Established locations\n");
-        for (LocationProfile loc : selectedLocations(story, state)) {
+        List<LocationProfile> locations = complete ? story.bible.locations() : selectedLocations(story, state);
+        for (LocationProfile loc : locations) {
             sb.append("- [").append(loc.id()).append("] ").append(loc.name())
-              .append(" -- ").append(nz(loc.description())).append('\n');
+              .append(" -- ").append(nz(loc.description()));
+            if (complete) {
+                sb.append(" | appearance: ").append(nz(loc.visualDescription()));
+                if (state != null && (loc.id().equals(state.currentLocationId)
+                        || state.knownLocationIds.contains(loc.id()))) {
+                    sb.append(" | already visited: this id MUST remain in the revised bible");
+                }
+            }
+            sb.append('\n');
         }
-        if (story.bible.locations().size() > MAX_LOCATION_PROFILES) {
+        if (!complete && story.bible.locations().size() > MAX_LOCATION_PROFILES) {
             sb.append("Additional locations remain registered. This briefing prioritizes the current and recently discovered places.\n");
         }
 
@@ -265,11 +291,15 @@ public class ContextRenderer {
         return sb.toString();
     }
 
-    private static List<NpcProfile> selectedCharacters(CompiledStory story, GameState state) {
+    private static List<NpcProfile> allCharacters(CompiledStory story) {
         Map<String, NpcProfile> profiles = new LinkedHashMap<>();
         story.bible.characters().forEach(npc -> profiles.putIfAbsent(npc.id(), npc));
         story.encounteredNpcs.forEach(npc -> profiles.putIfAbsent(npc.id(), npc));
-        var selected = new ArrayList<>(profiles.values());
+        return List.copyOf(profiles.values());
+    }
+
+    private static List<NpcProfile> selectedCharacters(CompiledStory story, GameState state) {
+        var selected = new ArrayList<>(allCharacters(story));
         if (state != null) {
             selected.sort(Comparator.comparingInt((NpcProfile npc) -> currentlySeen(state, npc.id()) ? 0 : 1)
                     .thenComparing(Comparator.comparingLong((NpcProfile npc) -> lastSeen(state.characters.get(npc.id()))).reversed()));

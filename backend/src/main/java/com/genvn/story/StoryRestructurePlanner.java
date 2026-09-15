@@ -96,7 +96,7 @@ public class StoryRestructurePlanner {
         LlmRequest request = LlmRequest.of(LlmPurpose.STORY_RESTRUCTURE,
                 Prompts.restructureSystem(language()),
                 Prompts.restructureUser(
-                        context.renderStoryFoundation(story, state),
+                        context.renderRestructureFoundation(story, state),
                         context.renderGameState(state, story),
                         context.renderCompletedBeats(story, state),
                         clean),
