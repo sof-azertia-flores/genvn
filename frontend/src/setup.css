@@ -11,6 +11,7 @@
 .language-switch { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; border: 1px solid #ffffffbd; background: #ffffff73; }
 .language-switch button { padding: 5px 10px; border: 0; border-radius: 999px; background: transparent; font-size: 11px; color: #3d5878; }
 .language-switch button.on { background: #176de1; color: #fff; }
+.setup-language { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .setup-settings { font-size: 11px; padding: 7px 12px; }
 .setup-mode i { width: 6px; height: 6px; border-radius: 50%; background: #55a988; box-shadow: 0 0 0 3px #80c2a618; }
 .setup-mode b { font-size: 10px; font-weight: 500; color: #617896; border-left: 1px solid #6989ae26; margin-left: 6px; padding-left: 14px; }
@@ -109,3 +110,13 @@
 .access-card .error-banner { margin-top: 0; }
 .access-card .btn { align-self: flex-end; }
 @media (pointer: coarse) and (max-width: 760px) { .access-card input[type=password] { font-size: 16px; } }
+
+/* Sample stories: one click fills the whole form, so the row has to read as a set of choices. */
+.sample-caption { color: #7a8fa9; font-size: 10px; }
+.sample-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.sample-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 14px; border: 1px solid #ffffffd1; border-radius: 16px; background: #f2f7fd91; box-shadow: 0 2px 7px #2b4f7b08; text-align: left; cursor: pointer; }
+.sample-chip:hover:not(:disabled) { background: #ffffffcc; border-color: #b9d3f3; }
+.sample-chip strong { font-size: 12px; font-weight: 600; color: #2f4869; }
+.sample-chip small { font-size: 10px; color: #7a8fa9; }
+.sample-chip:disabled { opacity: .55; cursor: default; }
+@media (max-width: 640px) { .sample-chip { flex: 1 1 100%; } }

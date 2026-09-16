@@ -12,8 +12,11 @@ import CharacterCard from "./components/CharacterCard";
 import TaskQueue from "./components/TaskQueue";
 import HistoryDialog from "./components/HistoryDialog";
 import RestructureDialog from "./components/RestructureDialog";
+import WelcomeDialog from "./components/WelcomeDialog";
+import StageTour from "./components/StageTour";
 import { useTypewriter } from "./useTypewriter";
 import useRestructureJob from "./useRestructureJob";
+import { TOUR_KEY, WELCOME_KEY, markSeen, seen } from "./onboarding";
 import { displayUrl, preload, useAssets } from "./assets";
 import { portraitUrl } from "./assetView";
 import type {
@@ -21,6 +24,7 @@ import type {
 } from "./types";
 import { backdropFor } from "./visual";
 import { LocaleProvider, approachLabel, expressionLabel, parseLang, t, type Lang } from "./i18n";
+import { ThemeContext, applyTheme, readTheme, type Theme } from "./theme";
 
 type Access = "checking" | "required" | "denied" | "open";
 
@@ -28,6 +32,8 @@ export default function App() {
   /** Nothing else talks to the backend until the key question is settled. */
   const [access, setAccess] = useState<Access>("checking");
   const [lang, setLang] = useState<Lang>("zh");
+  // A look, not a setting the story depends on: it lives in this browser, not in the save.
+  const [theme, setThemeState] = useState<Theme>(readTheme);
   const [config, setConfig] = useState<ConfigView | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [story, setStory] = useState<CompiledStory | null>(null);
@@ -67,6 +73,9 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showRestructure, setShowRestructure] = useState(false);
+  // Read once, from this browser's own record. A new browser is genuinely a first visit.
+  const [welcomeSeen, setWelcomeSeen] = useState(() => seen(WELCOME_KEY));
+  const [tourSeen, setTourSeen] = useState(() => seen(TOUR_KEY));
   /** Which scene a rewrite would start from: the current one, or one picked from the recap. */
   const [restructureAnchor, setRestructureAnchor] = useState<{ nodeId: string; label: string | null } | null>(null);
   // The selected line has its own reading turn. A cached next scene must not erase it.
@@ -87,7 +96,15 @@ export default function App() {
     } catch { /* UI already switched; persist when the backend accepts it */ }
   }, [applyConfig]);
 
-  const shell = (node: ReactNode) => <LocaleProvider lang={lang} onChange={changeLang}>{node}</LocaleProvider>;
+  // Applied from an effect rather than only from main.tsx, so the attribute is correct whenever
+  // App is mounted and a change needs nothing but a state update.
+  useEffect(() => { applyTheme(theme); }, [theme]);
+  const changeTheme = useCallback((next: Theme) => setThemeState(next), []);
+  const shell = (node: ReactNode) => (
+    <ThemeContext.Provider value={{ theme, setTheme: changeTheme }}>
+      <LocaleProvider lang={lang} onChange={changeLang}>{node}</LocaleProvider>
+    </ThemeContext.Provider>
+  );
   const tr = (key: string, vars?: Record<string, string | number>) => t(lang, key, vars);
 
   useEffect(() => {
@@ -611,8 +628,12 @@ export default function App() {
     return shell(
       <>
         <SetupView config={config} onStarted={showSession} onLoad={openSession} onOpenSettings={() => setShowSettings(true)} />
+        {!welcomeSeen && !showSettings && <WelcomeDialog imageEnabled={Boolean(config?.imageEnabled)}
+          onDone={() => { markSeen(WELCOME_KEY); setWelcomeSeen(true); }} />}
         {notices}
-        {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} onSaved={() => { api.config().then(applyConfig).catch(() => undefined); }} />}
+        {showSettings && <SettingsDialog onClose={() => setShowSettings(false)}
+          onSaved={() => { api.config().then(applyConfig).catch(() => undefined); }}
+          onGuideReset={() => { setWelcomeSeen(false); setTourSeen(false); }} />}
         {loadingMessage && (
           <div className="loading">
             <div className="spinner" />
@@ -641,7 +662,7 @@ export default function App() {
     <div className="stage">
       <Backdrop
         url={displayUrl(assets, scene.location.backgroundAssetId)}
-        fallback={backdropFor(scene.location.id, scene.location.visualDescription)}
+        fallback={backdropFor(scene.location.id, scene.location.visualDescription, theme)}
       />
       <div className="grain" />
 
@@ -768,6 +789,10 @@ export default function App() {
         onRestructure={(sceneId, label) => openRestructure(sceneId, label)}
         rewindBlocked={Boolean(playerTurn || requestPending.current || resolvingChoiceId || rollCheck)} />}
 
+      {!tourSeen && !playerTurn && !rollCheck && !showRestructure && !showHistory && !showQueue
+        && !showSheet && !showSettings && !showInspector
+        && <StageTour onDone={() => { markSeen(TOUR_KEY); setTourSeen(true); }} />}
+
       {showRestructure && <RestructureDialog
         anchorLabel={restructureAnchor?.label ?? null}
         canRestructure={Boolean(restructureAnchor)}
@@ -777,7 +802,9 @@ export default function App() {
 
       {showSheet && <SidePanel state={state} story={story} cardUrl={displayUrl(assets, "card.player.default")} onClose={() => setShowSheet(false)} />}
 
-      {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} onSaved={() => { api.config().then(applyConfig).catch(() => undefined); }} />}
+      {showSettings && <SettingsDialog onClose={() => setShowSettings(false)}
+        onSaved={() => { api.config().then(applyConfig).catch(() => undefined); }}
+        onGuideReset={() => { setWelcomeSeen(false); setTourSeen(false); }} />}
 
       {showQueue && <TaskQueue sessionId={sessionId} sceneId={scene.sceneId} assets={assets}
         onClose={() => setShowQueue(false)} onInspect={() => { setShowQueue(false); setShowInspector(true); }} />}

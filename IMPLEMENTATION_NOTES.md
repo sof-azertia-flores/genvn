@@ -17,7 +17,7 @@ Implementation history, current behavior, and validation, including the visual a
 | P0.7 | Canonical state really changes | **done** — inventory, flags, relations, location, HP, conditions, beats, threads |
 | P0.8 | One-step speculative generation | **done** — one candidate per choice; a check's die is cast ahead and sealed |
 | P0.9 | Invalid LLM output never crashes the app | **done** — repair loop, local normalisation, clean 502 |
-| P0.10 | Actually built, run and tested | **done** — 311 backend tests, 87 frontend tests, plus browser play-throughs |
+| P0.10 | Actually built, run and tested | **done** — 311 backend tests, 109 frontend tests, plus browser play-throughs |
 
 P1 also landed: **Story Arc Continuation** (a second arc is planned in the background and taken up
 when the spine runs out), **file save** after every commit, and a save list on the start screen.
@@ -888,6 +888,89 @@ privacy rule and the HTTP surface; `tests/restructure.test.mjs` covers the dialo
 Verified end to end in mock mode on a scratch data directory: framework revised, refused take still
 rewindable, and no trace of the instruction anywhere under `data/`.
 
+## First-run guide, six sample stories, a default art brief (2026-09-15)
+
+A new player met an empty outline box, six unexplained attributes, and no hint that the dice were
+the engine's. Three changes, all front-end only -- no backend, no API, no config.
+
+**The guide is in two halves, recorded per browser.** `src/onboarding.ts` keeps
+`genvn.onboarding.welcome` and `genvn.onboarding.tour` in `localStorage` as a version number.
+`WelcomeDialog` runs on the start screen (what this is, what an outline is for, what the talent
+points do, who rolls the dice, and -- only when pictures are on -- where the art style comes from);
+`StageTour` runs on the first story, five bubbles over the stage. Skipping counts as seeing it:
+a player who does not want the guide is not asked twice. The halves are independent, so someone
+who skipped the welcome still gets the in-game tour.
+
+- Per-browser, not per-save, and never sent anywhere: the guide teaches the app, not a story, so a
+  new browser genuinely is a first visit. An unreadable or older version counts as unseen, which is
+  what lets a future rewrite of the guide show itself again.
+- Private mode, blocked storage and quota errors all fall back to an in-memory copy for that page
+  rather than throwing, the way `api.ts` already treats the access key.
+- 设置 gained **重新观看新手引导**, which clears both records and restarts the guide at once.
+- The tour anchors its bubbles by CSS class rather than by measuring the elements they describe.
+  The stage layout is fixed, so an anchor lands correctly at every width and survives the scene
+  changing underneath it, which a measured rectangle would not. It also swallows space, enter and
+  the arrows in the capture phase, so stepping through the guide never advances the story.
+- It stays out of the way: no bubble while a die is revealing, a player line is on screen, or any
+  dialog is open.
+
+**Six samples instead of one** (`src/examples.ts` + `ex*.<id>` keys in i18n), each filling the whole
+form -- outline, name, background, traits, appearance and a 15-point talent spread -- so the
+shortest path from an empty screen to a playable story is one click. They deliberately span Tang
+Chang'an, Ming coastal garrison, modern China, medieval Europe and modern Europe alongside the
+original modern house: the compiler writes whatever the outline implies, and a player shown only
+one setting assumes that is all it does.
+
+**The art direction ships filled in** with the brief from `demo_graphic.txt` rather than empty, in
+Chinese under the Chinese UI and in English under the English one. A default house style is a far
+better first result than whatever the compiler would invent, and it is still one edit from being the
+player's own. Sample text and the art brief both follow a language switch only while untouched;
+anything the player typed is never overwritten.
+
+`i18n.tsx` now exports `dictionaries` so a test can prove zh and en hold the same keys -- a missing
+key does not fail at runtime (`t` falls back to Chinese), which is exactly why it is worth a test.
+
+`tests/onboarding.test.mjs` and `tests/examples.test.mjs` cover the records, the version rule, the
+damaged-value rule, skip-counts-as-seen, the settings reset, the sample fill and its legal talent
+spread, the art default in both languages, and full key parity.
+
+## Two themes: the original, and parchment (2026-09-16)
+
+The look is now a choice. **夜色 / Nightfall** is the original stylesheet, unchanged. **羊皮纸 /
+Parchment** is pale paper, sepia ink and serif type, across the whole app including the reading
+stage.
+
+The interesting constraint was that the CSS is 378 lines carrying about 500 hardcoded colours
+against only 67 `var()` uses, so tokenising it into two palettes would have meant rewriting nearly
+every rule — and the one thing that must not happen is the original theme shifting under a refactor
+nobody asked for.
+
+- **The base sheets are never edited.** `theme-parchment.css` scopes every rule to
+  `[data-theme="parchment"]`, which adds an attribute selector to a class selector and therefore
+  outranks the base rule regardless of load order, including inside the base sheets' own media
+  queries. `git diff` on `styles.css`/`setup.css` shows additions only (the `.theme-switch` rules),
+  which is the proof that the original renders exactly as it did.
+- **The default theme carries no attribute at all.** `applyTheme("default")` deletes
+  `data-theme` rather than setting it, so there is no selector an override sheet could hook.
+- **The stage flips from dark to light.** `.stage` ships light ink on a dark ground; parchment is
+  the opposite, so its block re-declares the ink tokens dark and `color-scheme: light`. The
+  backdrop gradient changes from a darkening veil to a warm cream one -- the same job (keeping text
+  legible over generated art) done in the other direction, so a picture reads as printed on the
+  page rather than lit from behind.
+- **Two colours live in JavaScript, not CSS.** `backdropFor` and `portraitFor` build placeholder
+  gradients as inline styles, which no stylesheet can override, so both take the theme and return
+  warm, light tints under parchment. They keep their per-location and per-character stability.
+- The theme is a browser preference, stored in `localStorage` beside the onboarding record, not in
+  `application.yml`: nothing about it reaches the model or the save, unlike the language, which the
+  compiler genuinely reads. `main.tsx` applies it before the first paint so the page never renders
+  in one skin and swaps; `App` re-applies it from an effect so mounting App is enough on its own.
+- The switcher sits beside the language switcher, in the setup masthead and the settings header.
+- Parchment restates the base sheets' accessibility fallbacks too: reduced transparency, no
+  `backdrop-filter`, and `prefers-contrast: more`.
+
+`tests/theme.test.mjs` covers the absent attribute for the default, persistence and restore, an
+unknown stored value falling back, the app opening in the stored theme, the switcher's contents, and
+the two JS gradients following the theme while staying stable per subject.
 
 ## Rewrite continuity and image restart recovery (2026-09-16)
 
@@ -915,3 +998,9 @@ dependencies, archived routes, exhausted attempts and disabled image generation.
 fixture with the real rewrite hook and dialog verified Escape protection and three failed progress
 reads followed by successful recovery: one POST, four GETs and one save load. Model responses were
 simulated and saves were temporary; no real provider or running game service was used.
+
+
+Merge validation (2026-09-16): the combined themes and recovery tree passes 311 backend tests,
+109 frontend regression tests, and the TypeScript / Vite production build. The per-feature
+validation counts above describe the original branch checks; both sets of regression coverage
+are retained in this merged tree.

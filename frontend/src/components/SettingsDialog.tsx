@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, setAccessKey } from "../api";
+import { resetGuide } from "../onboarding";
+import ThemeSwitcher from "./ThemeSwitcher";
 import { fieldHint, fieldLabel, groupLabel, LanguageSwitcher, parseLang, useLocale, useT } from "../i18n";
 import type { SettingsField, SettingsKind, SettingsView } from "../types";
 
 interface Props {
   onClose: () => void;
   onSaved?: () => void;
+  /** Told when the player asks to see the guide again, so the app can show it once more. */
+  onGuideReset?: () => void;
 }
 
 const GROUP_ORDER = ["服务器", "语言模型", "推理力度", "引擎", "预推演与续章", "图片"];
 
-export default function SettingsDialog({ onClose, onSaved }: Props) {
+export default function SettingsDialog({ onClose, onSaved, onGuideReset }: Props) {
   const { lang, setLang } = useLocale();
   const tr = useT();
   const [view, setView] = useState<SettingsView | null>(null);
@@ -89,6 +93,7 @@ export default function SettingsDialog({ onClose, onSaved }: Props) {
         <header className="task-header">
           <div><span className="eyebrow">RUNTIME CONFIG</span><h2 id="settings-title">{tr("settingsTitle")}</h2></div>
           <div className="settings-header-tools">
+            <ThemeSwitcher />
             <LanguageSwitcher />
             <button className="dialog-close" ref={closeButton} onClick={onClose} aria-label={tr("settingsClose")}>×</button>
           </div>
@@ -116,6 +121,17 @@ export default function SettingsDialog({ onClose, onSaved }: Props) {
                   <small>{fieldHint(lang, field)}</small>
                 </label>
               ))}
+            </div>
+            <div className="settings-guide">
+              <div>
+                <span>{tr("guideReplay")}</span>
+                <small>{tr("guideReplayHint")}</small>
+              </div>
+              <button className="btn ghost" type="button" onClick={() => {
+                resetGuide();
+                onGuideReset?.();
+                setNotice(tr("guideReplayDone"));
+              }}>{tr("guideReplay")}</button>
             </div>
             <footer className="task-footer">
               <span>{view.file}</span>
